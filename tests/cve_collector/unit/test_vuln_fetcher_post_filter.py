@@ -26,7 +26,7 @@ def _make_cve(**overrides) -> CVE:
 
 
 def test_post_filter_no_repo_raises():
-    vf = CVECollector()
+    vf = CVECollector(github_token="test")
     cve = _make_cve(repo=None, patches=[], pocs=[])
     with pytest.raises(PostFilterError) as ei:
         vf._apply_post_filter(cve)
@@ -34,7 +34,7 @@ def test_post_filter_no_repo_raises():
 
 
 def test_post_filter_repo_large_raises():
-    vf = CVECollector()
+    vf = CVECollector(github_token="test")
     cve = _make_cve(repo="owner/repo", size_kb=20000, patches=["x"], pocs=[])
     with pytest.raises(PostFilterError) as ei:
         vf._apply_post_filter(cve)
@@ -42,7 +42,7 @@ def test_post_filter_repo_large_raises():
 
 
 def test_post_filter_no_artifacts_raises():
-    vf = CVECollector()
+    vf = CVECollector(github_token="test")
     cve = _make_cve(repo="owner/repo", size_kb=100, patches=[], pocs=[])
     with pytest.raises(PostFilterError) as ei:
         vf._apply_post_filter(cve)
@@ -50,7 +50,7 @@ def test_post_filter_no_artifacts_raises():
 
 
 def test_post_filter_passes():
-    vf = CVECollector()
+    vf = CVECollector(github_token="test")
     cve = _make_cve(repo="owner/repo", size_kb=100, patches=["https://github.com/owner/repo/commit/abc"], pocs=[])
     ret = vf._apply_post_filter(cve)
     assert ret is cve

@@ -38,9 +38,9 @@ class PostFilterError(Exception):
 class CVECollector:
     """CVE 메타데이터 및 패치 정보를 수집하는 메인 클래스"""
     
-    def __init__(self):
+    def __init__(self, github_token: str):
         self.osv_client = OSVClient()
-        self.github_client = GitHubClient()
+        self.github_client = GitHubClient(github_token)
     
     @staticmethod
     def get_meta_path() -> Path:

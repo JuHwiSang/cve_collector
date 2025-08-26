@@ -22,6 +22,7 @@ import typer
 from typing_extensions import Annotated
 
 from cve_collector import CVECollector
+import os
 from cve_collector.utils import helpers
 
 try:
@@ -136,7 +137,11 @@ def run(
         * CVE-XXXX-YYYY  – print metadata for that CVE (fetch if necessary)
         * GHSA-xxxx-xxxx-xxxx – same as above for GHSA ID
     """
-    collector = CVECollector()
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        typer.echo("GITHUB_TOKEN is required. Set it in your environment or .env file.")
+        raise typer.Exit(code=2)
+    collector = CVECollector(github_token)
     if identifier.lower() == "all":
         try:
             results = collector.collect_identifiers(since=since)

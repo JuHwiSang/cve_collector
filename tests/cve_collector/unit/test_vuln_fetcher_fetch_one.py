@@ -5,7 +5,7 @@ from cve_collector.cve_collector import CVECollector
 
 
 def test_collect_one_raises_on_osv_failure(monkeypatch):
-    vf = CVECollector()
+    vf = CVECollector(github_token="test")
 
     def fail_fetch(_identifier: str):
         raise RuntimeError("boom")

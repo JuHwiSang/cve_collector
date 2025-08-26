@@ -1,7 +1,5 @@
 """GitHub API 클라이언트 (Security Advisories 및 Repository 정보)"""
 
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, cast
@@ -12,7 +10,7 @@ import httpx
 import diskcache as dc
 import logging
 
-from cve_collector.utils import RateLimiter, SimpleRateLimiter, helpers, unwrap_nullable
+from cve_collector.utils import RateLimiter, SimpleRateLimiter, helpers
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -81,17 +79,21 @@ class GHAdvisoryNode(BaseModel):
 class GitHubClient:
     """GitHub API 클라이언트 (Security Advisories 및 Repository 정보)"""
     
-    def __init__(self, rate_limiter: Optional[RateLimiter] = None):
+    def __init__(self, github_token: str, rate_limiter: Optional[RateLimiter] = None):
         """
         GitHub API 클라이언트를 초기화합니다.
         
         Args:
+            github_token (str): GitHub Personal Access Token (필수)
             rate_limiter (Optional[RateLimiter]): Rate limiter 인스턴스. None이면 기본값(초당 1.5 요청) 사용
         """
         self.base_url = "https://api.github.com"
         self.graphql_url = "https://api.github.com/graphql"
+        if not github_token:
+            raise ValueError("GitHub token is required for GitHubClient")
+        self._token = github_token
         self.headers = {
-            "Authorization": f"Bearer {unwrap_nullable(os.getenv('GITHUB_TOKEN'))}",
+            "Authorization": f"Bearer {github_token}",
         }
         
         logger.debug("GitHub API 클라이언트 초기화 완료")
