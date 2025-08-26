@@ -4,7 +4,7 @@ Collect and print GHSA data as JSON.
 
 ### Install
 ```bash
-pip install git+https://github.com/your-org/cve_collector.git
+pip install git+https://github.com/JuHwiSang/cve_collector
 ```
 
 ### Configure token
