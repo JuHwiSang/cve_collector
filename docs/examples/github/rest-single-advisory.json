@@ -1,0 +1,76 @@
+{
+  "ghsa_id": "GHSA-xxxx-xxxx-xxxx",
+  "cve_id": "CVE-2024-1234", 
+  "url": "https://github.com/advisories/GHSA-xxxx-xxxx-xxxx",
+  "html_url": "https://github.com/advisories/GHSA-xxxx-xxxx-xxxx",
+  "repository_advisory_url": "https://github.com/example/repo/security/advisories/GHSA-xxxx-xxxx-xxxx",
+  "summary": "SQL injection vulnerability in example package",
+  "description": "A SQL injection vulnerability was discovered in the example package that allows remote attackers to execute arbitrary SQL commands via the user input parameter. This vulnerability affects versions prior to 1.2.3.",
+  "type": "security_advisory",
+  "severity": "high",
+  "source_code_location": "https://github.com/example/repo",
+  "references": [
+    {
+      "url": "https://github.com/example/repo/commit/abc123def456789"
+    },
+    {
+      "url": "https://github.com/example/repo/security/advisories/GHSA-xxxx-xxxx-xxxx"
+    },
+    {
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-1234"
+    },
+    {
+      "url": "https://github.com/security-researcher/poc-repo"
+    }
+  ],
+  "published_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-16T14:20:00Z",
+  "github_reviewed_at": "2024-01-15T11:00:00Z",
+  "nvd_published_at": "2024-01-15T12:00:00Z",
+  "withdrawn_at": null,
+  "identifiers": [
+    {
+      "value": "GHSA-xxxx-xxxx-xxxx",
+      "type": "GHSA"
+    },
+    {
+      "value": "CVE-2024-1234",
+      "type": "CVE"
+    }
+  ],
+  "credits": [
+    {
+      "user": {
+        "login": "security-researcher",
+        "id": 12345,
+        "avatar_url": "https://avatars.githubusercontent.com/u/12345?v=4",
+        "type": "User"
+      },
+      "type": "reporter"
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "example-package"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "< 1.2.3",
+      "first_patched_version": {
+        "identifier": "1.2.3"
+      }
+    }
+  ],
+  "cvss": {
+    "version": "3.1",
+    "score": 8.1,
+    "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+  },
+  "cwes": [
+    {
+      "cwe_id": "CWE-89",
+      "name": "Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+    }
+  ]
+} 

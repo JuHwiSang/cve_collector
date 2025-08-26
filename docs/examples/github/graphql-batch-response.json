@@ -1,0 +1,63 @@
+{
+  "data": {
+    "adv1": {
+      "ghsaId": "GHSA-1111-2222-3333",
+      "summary": "Cross-site scripting vulnerability in web framework",
+      "description": "A cross-site scripting (XSS) vulnerability was found in the web framework that allows attackers to inject malicious scripts into web pages viewed by other users.",
+      "publishedAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-16T14:20:00Z",
+      "severity": "MODERATE",
+      "references": [
+        {
+          "url": "https://github.com/example/framework/commit/def456abc789"
+        },
+        {
+          "url": "https://github.com/example/framework/security/advisories/GHSA-1111-2222-3333"
+        },
+        {
+          "url": "https://github.com/researcher/xss-poc"
+        }
+      ],
+      "identifiers": [
+        {
+          "type": "GHSA",
+          "value": "GHSA-1111-2222-3333"
+        },
+        {
+          "type": "CVE",
+          "value": "CVE-2024-5678"
+        }
+      ]
+    },
+    "adv2": {
+      "ghsaId": "GHSA-4444-5555-6666",
+      "summary": "Authentication bypass in API library",
+      "description": "An authentication bypass vulnerability allows unauthorized access to protected API endpoints by manipulating JWT tokens.",
+      "publishedAt": "2024-01-20T09:15:00Z",
+      "updatedAt": "2024-01-21T10:30:00Z",
+      "severity": "HIGH",
+      "references": [
+        {
+          "url": "https://github.com/example/api-lib/commit/ghi789jkl012"
+        },
+        {
+          "url": "https://github.com/example/api-lib/security/advisories/GHSA-4444-5555-6666"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2024-9012"
+        }
+      ],
+      "identifiers": [
+        {
+          "type": "GHSA",
+          "value": "GHSA-4444-5555-6666"
+        },
+        {
+          "type": "CVE",
+          "value": "CVE-2024-9012"
+        }
+      ]
+    },
+    "adv3": null
+  }
+} 
