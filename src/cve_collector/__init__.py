@@ -1,10 +1,9 @@
-import logging
+"""cve_collector package: app/core/infra/shared."""
 
-from .cve_collector import CVECollector
-from .utils import *
-from .cve import *
+__all__ = [
+    "__version__",
+]
 
-# Silence library logs by default; CLI enables if requested
-logging.getLogger(__name__).addHandler(logging.NullHandler())
+__version__ = "0.1.0"
 
-__all__ = ["CVECollector", "utils", "cve"]
+
