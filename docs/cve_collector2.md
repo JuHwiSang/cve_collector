@@ -9,6 +9,20 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 - 데이터 소스: OSV로부터 GHSA 목록(스켈레톤)을 확보하고, GitHub Security Advisory로 상세를 보강한다.
   - 참고 문서: [docs/osv_구조.md](./osv_구조.md), [docs/github_구조.md](./github_구조.md)
 
+## Conventions
+
+- 타입/덕타이핑 금지: `Any`, `cast`, `getattr`, `type: ignore` 사용 금지. `Protocol` 기반 포트로 구체 타입을 맞춘다.
+- 도메인 모델: `dataclasses.dataclass(frozen=True)`로 불변. 변경은 `dataclasses.replace()`로 복제 업데이트.
+- 검증/파싱 정책: infra 계층에서만 `pydantic` 모델(`OsvVulnerability`, `GitHubAdvisory`)로 검증한다. 정상 흐름에서 `isinstance`/키 존재 검사로 분기하지 않는다. 검증 실패는 그대로 예외로 전파한다.
+- Fail-fast 예외 정책: 조용한 fallback/무시 금지. `try/except`는 문맥 정보 추가 후 즉시 재던지기(raise) 용도로만 사용한다. `continue`로 오류를 건너뛰지 않는다.
+- 런타임 반사/동적 접근 금지: 정상 흐름 제어에 `getattr`/`hasattr`/딕셔너리 `get(..., default)`를 사용하지 않는다. 필요한 구조는 타입/모델로 정의한다.
+- import 위치: 모든 import는 파일 최상단에 배치.
+- URL 구성: 어댑터에서 문자열 결합 금지. `config/urls.py`의 `get_*_url` 함수 사용(예: `get_github_advisory_url`, `get_osv_vuln_url`).
+- 캐시 규약: `DiskCacheAdapter`는 bytes 저장/반환이 기본이며, JSON 헬퍼(`get_json/set_json`)와 모델 헬퍼(`get_model/set_model`)를 제공한다. 위반 시 `TypeError`. 컨텍스트 매니저(`with`)로 사용.
+ - 키 포맷: `osv:ghsa:{GHSA_ID}`, `gh_advisory:{GHSA_ID}`.
+- 테스트 레이어드: core(unit), infra(integration), app(E2E). E2E는 실제 네트워크 호출을 수행하며 안정적인 공개 GHSA 식별자(예: `GHSA-2234-fmw7-43wr`)를 고정 사용한다. 캐시는 테스트 격리를 위해 `CVE_COLLECTOR_CACHE_DIR`로 분리한다.
+- CLI: 유즈케이스는 도메인 객체만 반환. 프리젠테이션은 app에서 포맷팅.
+
 ## 디렉토리 구조 (초안)
 
 ```
@@ -36,9 +50,8 @@ src/cve_collector/
     osv_index.py           # OSV 기반 Index 어댑터 (GHSA 스켈레톤 리스트)
     github_enrichment.py   # GitHub GraphQL/REST 어댑터 (references→patch/PoC 추출)
     cache_diskcache.py     # diskcache 구현체
-    http_client.py         # HTTP 클라이언트 + 재시도/백오프
+    http_client.py         # HTTP 클라이언트 + 타임아웃. JSON object 강제.
     rate_limiter.py        # 레이트 리미터(토큰버킷/단순 슬리프)
-    settings.py            # 환경변수/설정 로더 (토큰/TTL/경로)
 
   shared/
     logging.py             # 로거 팩토리
@@ -47,6 +60,7 @@ src/cve_collector/
   config/
     types.py               # 설정 타입 (AppConfig 등)
     loader.py              # 설정 로더 (env→AppConfig)
+    urls.py                # 외부 API URL 빌더(get_*_url)
 ```
 
 ## 도메인 모델 (불변, 확장 가능)
@@ -264,36 +278,42 @@ class ClearCacheUseCase:
 
 ## Infra 어댑터 개요
 
-- OSV Index (`infra/osv_index.py`)
-  - 역할: GHSA 기반 스켈레톤 리스트 반환, 단건 스켈레톤 조회
-  - 입력: 로컬 ZIP/디렉토리 파싱 또는 OSV API 호출
-  - 출력: `Vulnerability(ghsa_id=..., cve_id=aliases[0], summary, repositories=())`
+- OSV Adapter (`infra/osv_index.py`)
+  - 역할: OSV Index + Enrichment (두 포트 구현)
+  - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일만 필터 → 각 항목을 `osv:ghsa:{id}`로 개별 저장
+  - 캐시 키: 각 항목 `osv:ghsa:{GHSA_ID}` (리스트 키 없음)
+  - `list(ecosystem, limit)`: 캐시의 `osv:ghsa:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환
+  - `get_by_ghsa(ghsa_id)`: 캐시 조회 후 미스 시 `get_osv_vuln_url(ghsa_id)`로 직접 페치 → 모델 검증 후 캐시 저장(`set_model`) → 변환 후 반환
+  - `enrich(v)`: 동일 소스(OSV)로 요약/설명/심각도/별칭(CVE) 보강
+  - 출력: `Vulnerability(ghsa_id=..., cve_id=aliases[0], summary)`
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
 - GitHub Enrichment (`infra/github_enrichment.py`)
   - 역할: GraphQL/REST로 Advisory 조회 → 커밋/PoC/레포 메타 정규화
     - URL 파싱 → `(owner, name, commit)` 추출 → `Repository`, `Commit` 구성
     - PoC 키워드 매칭(`poc|exploit|demo|payload|reproduce`) → `poc_urls` 채움
-  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `advisory:{ghsa_id}`
+  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_advisory:{ghsa_id}`
+  - URL: `config/urls.py`의 `get_github_advisory_url(ghsa_id)` 사용 (문자열 결합 금지)
   - RateLimit: RateLimiterPort 사용. (권장: 초당 1.5 req REST, 2-3 배치/초 GraphQL)
   - 참고: [docs/github_구조.md](./github_구조.md)
 
 - DiskCache (`infra/cache_diskcache.py`)
-  - 역할: `get/set/clear_all` 구현. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 `github/`, `osv/` 등 네임스페이스 분리
-  - 직렬화: msgpack/json (바이트 저장). 모델은 외부 레이어에서 직렬화한다.
+  - 역할: `get/set/clear_all` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
+  - 직렬화: 모델 검증/매핑은 외부 레이어에서 수행하며, 캐시는 JSON 직렬화만 담당한다.
   - 금지 규칙: import 실패 시 대체 구현(fallback) 금지. 필요 모듈 미설치면 즉시 에러.
   - 리소스 관리: `clear()`로 비우기, `close()`로 종료. 컨텍스트 매니저(with) 지원.
 
 - HTTP Client (`infra/http_client.py`)
-  - 역할: 세션 재사용, 헤더(GitHub 토큰), 타임아웃. 응답코드 비정상이면 즉시 예외. JSON은 object만 허용.
+  - 역할: 세션 재사용, 타임아웃. 응답코드 비정상이면 즉시 예외. JSON은 object만 허용.
+  - 인증 헤더: `app/container.py`에서 `GITHUB_TOKEN`이 설정된 경우 Authorization/Accept/X-GitHub-Api-Version 헤더를 주입한다.
 
 ## CLI (app/cli.py)
 
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
-  - `cve list --ecosystem npm --limit 50`
-  - `cve detail GHSA-xxxx-xxxx-xxxx`
-  - `cve clear`
+- `cve_collector list --ecosystem npm --limit 50`
+- `cve_collector detail GHSA-xxxx-xxxx-xxxx`
+- `cve_collector clear`
 - 설치 및 실행:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
 - 에러 처리: 비정상 상황은 `typer.Exit(code=1)`로 명시 종료. 조용한 fallback 금지.

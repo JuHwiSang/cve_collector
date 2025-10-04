@@ -25,6 +25,11 @@ class HttpClient:
             raise TypeError("HttpClient invariant violated: expected JSON object")
         return data
 
+    def get_bytes(self, url: str) -> bytes:
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.content
+
     def close(self) -> None:
         self._client.close()
 

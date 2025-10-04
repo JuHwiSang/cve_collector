@@ -23,8 +23,8 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command()
-def list(
+@app.command("list")
+def list_cmd(
     ecosystem: str = typer.Option("npm", help="Ecosystem name (e.g., npm)"),
     limit: int | None = typer.Option(None, help="Limit number of results"),
 ) -> None:
@@ -49,6 +49,27 @@ def clear() -> None:
         uc = container.clear_cache_uc()
         uc.execute()
         typer.echo("Cache cleared")
+
+
+@app.command()
+def ingest(
+    ecosystems: list[str] = typer.Argument(..., help="Ecosystems to ingest (e.g., npm, pypi, go)", metavar="ECOSYSTEM"),
+    force: bool = typer.Option(False, help="Re-download and re-index even if cache exists"),
+) -> None:
+    with provide_container() as container:
+        index = container.index()
+        total = 0
+        for eco in ecosystems:
+            if not force:
+                existing = index.list(ecosystem=eco, limit=1)
+                if len(existing) > 0:
+                    typer.echo(f"{eco}: already ingested; skip")
+                    continue
+            count = index.ingest_zip(eco)
+            typer.echo(f"{eco}: ingested {count} entries")
+            total += count
+        if total == 0 and not force:
+            typer.echo("Nothing to ingest")
 
 
 def _print_list(vulns: Sequence[Vulnerability]) -> None:

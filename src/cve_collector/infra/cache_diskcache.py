@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Iterable, Optional
 
 import diskcache as dc
 from platformdirs import user_cache_dir
@@ -36,6 +36,14 @@ class DiskCacheAdapter(CachePort):
 
     def clear(self) -> None:
         self._cache.clear()
+    
+    def iter_keys(self, prefix: str) -> Iterable[str]:
+        # diskcache doesn't support prefix scan directly; iterate and filter
+        for key in self._cache.iterkeys():
+            if isinstance(key, str) and key.startswith(prefix):
+                yield key
+
+    # JSON/model helpers are provided by CachePort protocol default implementations
         
     def close(self) -> None:
         self._cache.close()
