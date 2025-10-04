@@ -30,6 +30,10 @@ class _StubHttp(HttpClient):
     def get_bytes(self, url: str) -> bytes:
         return self._content
 
+    def get_json(self, url: str) -> dict:
+        # Not used in these tests
+        return {}
+
 
 def test_osv_ingest_zip_populates_cache_and_list():
     z = _make_zip_with_ghsa()
@@ -42,6 +46,17 @@ def test_osv_ingest_zip_populates_cache_and_list():
             assert v is not None
             assert v.cve_id == "CVE-2020-1234"
             assert v.summary == "Something bad"
+            lst = adapter.list(ecosystem="npm")
+            assert len(lst) == 1
+            assert lst[0].ghsa_id == "GHSA-aaaa-bbbb-cccc"
+
+
+def test_osv_list_auto_ingests_when_empty():
+    z = _make_zip_with_ghsa()
+    with tempfile.TemporaryDirectory() as tmp:
+        with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            adapter = OSVIndexAdapter(cache=cache, http_client=_StubHttp(z))
+            # No prior ingest; list should trigger ingest automatically
             lst = adapter.list(ecosystem="npm")
             assert len(lst) == 1
             assert lst[0].ghsa_id == "GHSA-aaaa-bbbb-cccc"

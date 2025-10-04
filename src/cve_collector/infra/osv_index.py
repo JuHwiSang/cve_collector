@@ -33,7 +33,12 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
 
     def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
         result: list[Vulnerability] = []
-        for key in self._cache.iter_keys("osv:ghsa:"):
+        keys = list(self._cache.iter_keys("osv:ghsa:"))
+        if not keys:
+            # No cached entries yet; ingest for the requested ecosystem
+            self.ingest_zip(ecosystem)
+            keys = list(self._cache.iter_keys("osv:ghsa:"))
+        for key in keys:
             osv = self._cache.get_model(key, OsvVulnerability)  # raises if invalid JSON
             if osv is None:
                 continue

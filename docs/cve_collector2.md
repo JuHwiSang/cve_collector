@@ -21,6 +21,9 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 - 캐시 규약: `DiskCacheAdapter`는 bytes 저장/반환이 기본이며, JSON 헬퍼(`get_json/set_json`)와 모델 헬퍼(`get_model/set_model`)를 제공한다. 위반 시 `TypeError`. 컨텍스트 매니저(`with`)로 사용.
  - 키 포맷: `osv:ghsa:{GHSA_ID}`, `gh_advisory:{GHSA_ID}`.
 - 테스트 레이어드: core(unit), infra(integration), app(E2E). E2E는 실제 네트워크 호출을 수행하며 안정적인 공개 GHSA 식별자(예: `GHSA-2234-fmw7-43wr`)를 고정 사용한다. 캐시는 테스트 격리를 위해 `CVE_COLLECTOR_CACHE_DIR`로 분리한다.
+
+추가 규약:
+- GitHub Advisory의 `references`는 REST 버전에 따라 문자열 리스트 혹은 객체 리스트(`{ url: str }`)로 반환될 수 있다. 스키마는 두 형태를 모두 허용하며, 어댑터는 문자열이면 그대로 URL로, 객체면 `ref.url`로 정규화한다.
 - CLI: 유즈케이스는 도메인 객체만 반환. 프리젠테이션은 app에서 포맷팅.
 
 ## 디렉토리 구조 (초안)
@@ -284,7 +287,12 @@ class ClearCacheUseCase:
   - 캐시 키: 각 항목 `osv:ghsa:{GHSA_ID}` (리스트 키 없음)
   - `list(ecosystem, limit)`: 캐시의 `osv:ghsa:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환
   - `get_by_ghsa(ghsa_id)`: 캐시 조회 후 미스 시 `get_osv_vuln_url(ghsa_id)`로 직접 페치 → 모델 검증 후 캐시 저장(`set_model`) → 변환 후 반환
-  - `enrich(v)`: 동일 소스(OSV)로 요약/설명/심각도/별칭(CVE) 보강
+  - `enrich(v)`: OSV 정보로 다음 필드를 보강한다
+    - `cve_id`: `aliases`에서 CVE 선택
+    - `severity`: OSV `severity` 존재 시 최소 `UNKNOWN`
+    - `summary`/`description`: OSV `summary`/`details`로 보완
+    - `published_at`/`modified_at`: ISO 타임스탬프 파싱
+    - `repositories`/`commits`/`poc_urls`: OSV `references`의 GitHub URL/PoC 키워드 기반 추출
   - 출력: `Vulnerability(ghsa_id=..., cve_id=aliases[0], summary)`
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
@@ -292,6 +300,7 @@ class ClearCacheUseCase:
   - 역할: GraphQL/REST로 Advisory 조회 → 커밋/PoC/레포 메타 정규화
     - URL 파싱 → `(owner, name, commit)` 추출 → `Repository`, `Commit` 구성
     - PoC 키워드 매칭(`poc|exploit|demo|payload|reproduce`) → `poc_urls` 채움
+    - 참고: REST의 `references`는 문자열 또는 객체(`{ url: str }`)일 수 있으므로, 문자열/객체 양쪽을 모두 수용한다.
   - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_advisory:{ghsa_id}`
   - URL: `config/urls.py`의 `get_github_advisory_url(ghsa_id)` 사용 (문자열 결합 금지)
   - RateLimit: RateLimiterPort 사용. (권장: 초당 1.5 req REST, 2-3 배치/초 GraphQL)
