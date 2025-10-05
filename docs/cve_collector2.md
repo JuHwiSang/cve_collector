@@ -248,7 +248,7 @@ from typing import Sequence
 
 
 class ListVulnerabilitiesUseCase:
-    def __init__(self, index: VulnerabilityIndexPort) -> None:
+    def __init__(self, index: VulnerabilityListPort) -> None:
         self._index = index
 
     def execute(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
@@ -259,7 +259,7 @@ class ListVulnerabilitiesUseCase:
 
 ```python
 class DetailVulnerabilityUseCase:
-    def __init__(self, index: VulnerabilityIndexPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
+    def __init__(self, index: VulnerabilityListPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
         self._index = index
         self._enricher = enricher
 
@@ -344,7 +344,7 @@ from cve_collector.core.services.composite_enricher import CompositeEnricher
 from cve_collector.core.usecases import list_vulnerabilities, detail_vulnerability, clear_cache
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubAdvisoryEnricher
-from cve_collector.infra.osv_index import OSVIndexAdapter
+from cve_collector.infra.osv_adapter import OSVAdapter
 from cve_collector.infra.rate_limiter import SimpleRateLimiter
 
 
@@ -360,14 +360,14 @@ class Container(containers.DeclarativeContainer):
   cache = providers.Resource(cache_resource, app_config)
 
   rate_limiter = providers.Factory(SimpleRateLimiter, rps=1.5)
-  index = providers.Factory(OSVIndexAdapter, cache=cache)
+  index = providers.Factory(OSVAdapter, cache=cache)
 
   enrichers = providers.List(
     providers.Factory(GitHubAdvisoryEnricher, cache=cache),
   )
   composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
-  list_uc = providers.Factory(list_vulnerabilities.ListVulnerabilitiesUseCase, index=index)
+  list_uc = providers.Factory(list_vulnerabilities.ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
   detail_uc = providers.Factory(detail_vulnerability.DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
   clear_cache_uc = providers.Factory(clear_cache.ClearCacheUseCase, cache=cache)
 ```

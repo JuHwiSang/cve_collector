@@ -5,7 +5,7 @@ from typing import Protocol, Sequence
 from ..domain.models import Vulnerability
 
 
-class VulnerabilityIndexPort(Protocol):
+class VulnerabilityListPort(Protocol):
     def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
         """Return a GHSA-centric skeleton list (minimal fields).
 

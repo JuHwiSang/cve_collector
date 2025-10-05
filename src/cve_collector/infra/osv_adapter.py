@@ -9,7 +9,7 @@ from datetime import datetime
 from ..core.domain.models import Vulnerability, Repository, Commit
 from ..core.domain.enums import Severity
 from ..core.ports.cache_port import CachePort
-from ..core.ports.index_port import VulnerabilityIndexPort
+from ..core.ports.list_port import VulnerabilityListPort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from .http_client import HttpClient
 from .schemas import OsvVulnerability
@@ -28,7 +28,7 @@ def _to_domain(osv: OsvVulnerability) -> Vulnerability:
     return Vulnerability(ghsa_id=osv.id, cve_id=cve_id, summary=osv.summary)
 
 
-class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
+class OSVAdapter(VulnerabilityListPort, VulnerabilityEnrichmentPort):
     def __init__(self, cache: CachePort, http_client: HttpClient) -> None:
         self._cache = cache
         self._http = http_client
@@ -190,8 +190,5 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         )
 
     # enrich_many provided by VulnerabilityEnrichmentPort default implementation
-
-# Backward compatibility alias
-OSVIndexAdapter = OSVAdapter
 
 

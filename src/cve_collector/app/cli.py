@@ -23,15 +23,16 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command("list", help="List vulnerabilities. Columns: GHSA, CVE, repo slug, ★stars, severity.")
+@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add repo slug, ★stars, severity (enriched).")
 def list_cmd(
     ecosystem: str = typer.Option("npm", help="Ecosystem name (e.g., npm)"),
     limit: int | None = typer.Option(None, help="Limit number of results"),
+    detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
 ) -> None:
     with provide_container() as container:
         uc = container.list_uc()
-        vulns = uc.execute(ecosystem=ecosystem, limit=limit)
-        _print_list(vulns)
+        vulns = uc.execute(ecosystem=ecosystem, limit=limit, detailed=detail)
+        _print_list(vulns, detail=detail)
 
 
 @app.command(help=(
@@ -76,16 +77,24 @@ def ingest(
             typer.echo("Nothing to ingest")
 
 
-def _print_list(vulns: Sequence[Vulnerability]) -> None:
-    """Print columns: GHSA, CVE, first repo slug, ★stars of first repo, severity."""
-    # header
-    print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>6} {'Severity'}")
-    for v in vulns:
-        repo = v.repositories[0].slug if v.repositories else "-"
-        stars = v.repositories[0].star_count if v.repositories else None
-        star_s = f"★{stars}" if stars is not None else "-"
-        sev = v.severity.name if v.severity else "-"
-        print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>6} {sev}")
+def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None:
+    """Print a table of vulnerabilities.
+
+    - Default: columns GHSA, CVE
+    - With detail=True: columns GHSA, CVE, Repository, Stars, Severity (requires enrichment)
+    """
+    if detail:
+        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>6} {'Severity'}")
+        for v in vulns:
+            repo = v.repositories[0].slug if v.repositories else "-"
+            stars = v.repositories[0].star_count if v.repositories else None
+            star_s = f"★{stars}" if stars is not None else "-"
+            sev = v.severity.name if v.severity else "-"
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>6} {sev}")
+    else:
+        print(f"{'GHSA':22} {'CVE':17}")
+        for v in vulns:
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17}")
 
 
 def _print_detail(v: Vulnerability) -> None:

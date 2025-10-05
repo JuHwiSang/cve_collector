@@ -8,7 +8,7 @@ from ..core.usecases.list_vulnerabilities import ListVulnerabilitiesUseCase
 from ..core.usecases.detail_vulnerability import DetailVulnerabilityUseCase
 from ..infra.cache_diskcache import DiskCacheAdapter
 from ..infra.github_enrichment import GitHubAdvisoryEnricher
-from ..infra.osv_index import OSVIndexAdapter, OSVAdapter
+from ..infra.osv_adapter import OSVAdapter
 from ..infra.rate_limiter import SimpleRateLimiter
 from ..infra.http_client import HttpClient
 from ..config.loader import load_config
@@ -46,7 +46,7 @@ class Container(containers.DeclarativeContainer):
 	http_client = providers.Factory(HttpClient)
 	github_http_client = providers.Factory(HttpClient, base_headers=providers.Callable(github_headers, app_config))
 
-	index = providers.Factory(OSVIndexAdapter, cache=cache, http_client=http_client)
+	index = providers.Factory(OSVAdapter, cache=cache, http_client=http_client)
 
 	enrichers = providers.List(
 		providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
@@ -55,7 +55,7 @@ class Container(containers.DeclarativeContainer):
 
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
-	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index)
+	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
 	detail_uc = providers.Factory(DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
 	clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)
 
