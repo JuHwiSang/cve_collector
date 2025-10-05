@@ -4,6 +4,7 @@ from typing import Iterable, Sequence
 import json
 import io
 import zipfile
+from datetime import datetime
 
 from ..core.domain.models import Vulnerability, Repository, Commit
 from ..core.domain.enums import Severity
@@ -13,6 +14,7 @@ from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from .http_client import HttpClient
 from .schemas import OsvVulnerability
 from ..config.urls import get_osv_zip_url, get_osv_vuln_url
+from ..shared.utils import parse_github_commit_url, parse_github_repo_url, is_poc_url
 
 
 
@@ -133,13 +135,11 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         modified_at = v.modified_at
         if osv.published:
             try:
-                from datetime import datetime
                 published_at = datetime.fromisoformat(osv.published.replace("Z", "+00:00"))
             except Exception:
                 published_at = v.published_at
         if osv.modified:
             try:
-                from datetime import datetime
                 modified_at = datetime.fromisoformat(osv.modified.replace("Z", "+00:00"))
             except Exception:
                 modified_at = v.modified_at
@@ -149,27 +149,32 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         commits: list[Commit] = list(v.commits) if v.commits else []
         poc_urls: list[str] = list(v.poc_urls) if v.poc_urls else []
         if osv.references:
-            from ..shared.utils import parse_github_commit_url, parse_github_repo_url, is_poc_url
             for ref in osv.references:
+                rtype = (ref.type or "").upper()
                 url = ref.url
-                parsed_commit = parse_github_commit_url(url)
-                if parsed_commit is not None:
-                    owner, name, commit_hash = parsed_commit
-                    key_slug = f"{owner}/{name}"
-                    repo = repo_map.get(key_slug)
-                    if repo is None:
-                        repo = Repository.from_github(owner, name)
-                        repo_map[key_slug] = repo
-                    commits.append(Commit(repo=repo, hash=commit_hash))
-                    continue
-                parsed_repo = parse_github_repo_url(url)
-                if parsed_repo is not None:
-                    owner, name = parsed_repo
-                    key_slug = f"{owner}/{name}"
-                    if key_slug not in repo_map:
-                        repo_map[key_slug] = Repository.from_github(owner, name)
-                    continue
-                if is_poc_url(url):
+                # Prefer commit extraction for FIX/WEB/OTHER (exclude ADVISORY/PACKAGE)
+                if rtype in ("FIX", "WEB", "OTHER") and rtype not in ("ADVISORY", "PACKAGE"):
+                    parsed_commit = parse_github_commit_url(url)
+                    if parsed_commit is not None:
+                        owner, name, commit_hash = parsed_commit
+                        key_slug = f"{owner}/{name}"
+                        repo = repo_map.get(key_slug)
+                        if repo is None:
+                            repo = Repository.from_github(owner, name)
+                            repo_map[key_slug] = repo
+                        commits.append(Commit(repo=repo, hash=commit_hash))
+                        continue
+                # Prefer repository extraction for PACKAGE/WEB
+                if rtype in ("PACKAGE", "WEB"):
+                    parsed_repo = parse_github_repo_url(url)
+                    if parsed_repo is not None:
+                        owner, name = parsed_repo
+                        key_slug = f"{owner}/{name}"
+                        if key_slug not in repo_map:
+                            repo_map[key_slug] = Repository.from_github(owner, name)
+                        continue
+                # PoC URLs are typically WEB/OTHER; ignore ADVISORY/PACKAGE for PoC
+                if rtype in ("WEB", "OTHER") and is_poc_url(url):
                     poc_urls.append(url)
 
         return v.with_updates(

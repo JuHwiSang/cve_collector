@@ -20,7 +20,11 @@ def parse_github_repo_url(url: str) -> Optional[Tuple[str, str]]:
     m = GITHUB_REPO_RE.match(url)
     if not m:
         return None
-    return m.group("owner"), m.group("name")
+    owner = m.group("owner")
+    # Ignore GitHub advisories pseudo-owner (not a real repository)
+    if owner.lower() == "advisories":
+        return None
+    return owner, m.group("name")
 
 
 def is_poc_url(url: str) -> bool:
