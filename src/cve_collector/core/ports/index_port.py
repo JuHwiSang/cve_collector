@@ -13,7 +13,14 @@ class VulnerabilityIndexPort(Protocol):
         """
         ...
 
-    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None:
-        """Return a single skeleton by GHSA id, or None if not found."""
+    def get(self, selector: str) -> Vulnerability | None:
+        """Return a single skeleton by a generic selector, or None if not found.
+
+        Core should not assume a specific identifier scheme. Implementations may
+        support one or more selector kinds (e.g., GHSA, CVE, DB numeric id, etc.).
+        """
+
+    # Backward-compat convenience for current GHSA-centric infra
+    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None: ...
 
 

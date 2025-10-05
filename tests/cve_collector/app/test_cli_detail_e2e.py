@@ -25,7 +25,7 @@ def test_cli_detail_not_found_exits_1():
 def test_cli_detail_help_shows_param():
 	cp = run_cli(["detail", "--help"])
 	assert cp.returncode == 0
-	assert "GHSA identifier" in cp.stdout
+	assert "Vulnerability identifier" in cp.stdout
 
 
 def test_cli_detail_network_e2e(tmp_path):

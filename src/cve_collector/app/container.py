@@ -5,7 +5,7 @@ from dependency_injector import containers, providers
 from ..core.services.composite_enricher import CompositeEnricher
 from ..core.usecases.clear_cache import ClearCacheUseCase
 from ..core.usecases.list_vulnerabilities import ListVulnerabilitiesUseCase
-from ..core.usecases.show_vulnerability import ShowVulnerabilityUseCase
+from ..core.usecases.detail_vulnerability import DetailVulnerabilityUseCase
 from ..infra.cache_diskcache import DiskCacheAdapter
 from ..infra.github_enrichment import GitHubAdvisoryEnricher
 from ..infra.osv_index import OSVIndexAdapter, OSVAdapter
@@ -56,7 +56,7 @@ class Container(containers.DeclarativeContainer):
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
 	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index)
-	show_uc = providers.Factory(ShowVulnerabilityUseCase, index=index, enricher=composite_enricher)
+	detail_uc = providers.Factory(DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
 	clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)
 
 

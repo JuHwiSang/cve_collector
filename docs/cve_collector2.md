@@ -46,7 +46,7 @@ src/cve_collector/
       clock_port.py        # 시계/시간 포트 (테스트 용이성)
     usecases/
       list_vulnerabilities.py   # 전체 리스트 가져오기 (스켈레톤 혹은 경량 보강)
-      show_vulnerability.py     # GHSA 단건 조회 + 보강
+      detail_vulnerability.py   # 단건 상세 조회 + 보강 (식별자 문자열 기반)
       clear_cache.py            # 모든 캐시 비우기
 
   infra/
@@ -186,8 +186,12 @@ class VulnerabilityIndexPort(Protocol):
         구현 예: OSV GHSA 파일/검색 결과를 파싱해 Vulnerability 생성
         """
 
-    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None:
-        """단건 스켈레톤 조회. 없으면 None."""
+    def get(self, selector: str) -> Vulnerability | None:
+        """식별자 문자열로 단건 조회. 예: "GHSA-...", "CVE-...".
+        구현체는 접두사 등 규칙으로 해석한다. 없으면 None.
+        """
+
+    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None: ...  # 호환용 편의 메서드
 
 
 class VulnerabilityEnrichmentPort(Protocol):
@@ -251,16 +255,16 @@ class ListVulnerabilitiesUseCase:
         return self._index.list(ecosystem=ecosystem, limit=limit)
 ```
 
-2) 특정 GHSA 상세 출력용 (필요시 보강 적용)
+2) 단건 상세 출력용 (식별자 문자열 기반, 필요시 보강 적용)
 
 ```python
-class ShowVulnerabilityUseCase:
+class DetailVulnerabilityUseCase:
     def __init__(self, index: VulnerabilityIndexPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
         self._index = index
         self._enricher = enricher
 
-    def execute(self, ghsa_id: str) -> Vulnerability | None:
-        v = self._index.get_by_ghsa(ghsa_id)
+    def execute(self, selector: str) -> Vulnerability | None:
+        v = self._index.get(selector)
         if v is None:
             return None
         if self._enricher is None:
@@ -285,7 +289,8 @@ class ClearCacheUseCase:
   - 역할: OSV Index + Enrichment (두 포트 구현)
   - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일만 필터 → 각 항목을 `osv:ghsa:{id}`로 개별 저장
   - 캐시 키: 각 항목 `osv:ghsa:{GHSA_ID}` (리스트 키 없음)
-  - `list(ecosystem, limit)`: 캐시의 `osv:ghsa:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환
+  - `list(ecosystem, limit)`: 캐시의 `osv:ghsa:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환. 캐시가 비어 있으면 자동으로 ZIP ingest 후 재스캔.
+  - `get(selector)`: 문자열 식별자를 해석하여 단건 조회. `GHSA-...` → GHSA 기반 조회(`get_by_ghsa`), `CVE-...` → 캐시된 OSV 항목의 `aliases`를 스캔하여 매칭되면 반환.
   - `get_by_ghsa(ghsa_id)`: 캐시 조회 후 미스 시 `get_osv_vuln_url(ghsa_id)`로 직접 페치 → 모델 검증 후 캐시 저장(`set_model`) → 변환 후 반환
   - `enrich(v)`: OSV 정보로 다음 필드를 보강한다
     - `cve_id`: `aliases`에서 CVE 선택
@@ -322,6 +327,7 @@ class ClearCacheUseCase:
 - 명령:
 - `cve_collector list --ecosystem npm --limit 50`
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
+- `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector clear`
 - 설치 및 실행:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
@@ -335,7 +341,7 @@ from dependency_injector import containers, providers
 from cve_collector.config.loader import load_config
 from cve_collector.config.types import AppConfig
 from cve_collector.core.services.composite_enricher import CompositeEnricher
-from cve_collector.core.usecases import list_vulnerabilities, show_vulnerability, clear_cache
+from cve_collector.core.usecases import list_vulnerabilities, detail_vulnerability, clear_cache
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubAdvisoryEnricher
 from cve_collector.infra.osv_index import OSVIndexAdapter
@@ -362,16 +368,16 @@ class Container(containers.DeclarativeContainer):
   composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
   list_uc = providers.Factory(list_vulnerabilities.ListVulnerabilitiesUseCase, index=index)
-  show_uc = providers.Factory(show_vulnerability.ShowVulnerabilityUseCase, index=index, enricher=composite_enricher)
+  detail_uc = providers.Factory(detail_vulnerability.DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
   clear_cache_uc = providers.Factory(clear_cache.ClearCacheUseCase, cache=cache)
 ```
 
 메모:
-- Enricher는 providers.List로 여러 구현을 주입할 수 있고, 필요 시 `ShowVulnerabilityUseCase`에 리스트 자체를 넣는 대신 `CompositeEnricher`를 통해 순차 적용한다.
+- Enricher는 providers.List로 여러 구현을 주입할 수 있고, 필요 시 `DetailVulnerabilityUseCase`에 리스트 자체를 넣는 대신 `CompositeEnricher`를 통해 순차 적용한다.
 
 ## 캐시/성능/에러 처리 지침
 
-- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:list:npm`, `advisory:{ghsa_id}`.
+- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:ghsa:{GHSA_ID}`, `gh_advisory:{GHSA_ID}`.
 - TTL: GitHub 30일, OSV 7일(권장). CLI 옵션으로 오버라이드 가능.
 - 동시성: 초기엔 동기 구현 후, 대용량 처리 시 `ThreadPoolExecutor`로 보강(Enricher의 `enrich_many`).
 - 에러 처리: 

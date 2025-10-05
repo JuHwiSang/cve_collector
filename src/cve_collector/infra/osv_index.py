@@ -47,6 +47,22 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
                 break
         return result
 
+    def get(self, selector: str) -> Vulnerability | None:
+        sel = selector.strip()
+        if sel.upper().startswith("GHSA-"):
+            return self.get_by_ghsa(sel)
+        if sel.upper().startswith("CVE-"):
+            # OSV is GHSA-centric in our adapter; try to resolve by scanning cache
+            # for an entry whose aliases include the CVE, otherwise fetch by GHSA
+            # is not possible without a mapping. We attempt a best-effort scan.
+            for key in self._cache.iter_keys("osv:ghsa:"):
+                osv = self._cache.get_model(key, OsvVulnerability)
+                if osv and any(a == sel for a in (osv.aliases or [])):
+                    return _to_domain(osv)
+            # Fallback: no mapping found
+            return None
+        raise ValueError(f"Unsupported selector: {selector}")
+
     def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None:
         key = f"osv:ghsa:{ghsa_id}"
         osv = self._cache.get_model(key, OsvVulnerability)

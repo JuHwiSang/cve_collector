@@ -35,10 +35,10 @@ def list_cmd(
 
 
 @app.command()
-def detail(ghsa_id: str = typer.Argument(..., help="GHSA identifier")) -> None:
+def detail(selector: str = typer.Argument(..., help="Vulnerability identifier (e.g., GHSA-xxxx or CVE-xxxx)")) -> None:
     with provide_container() as container:
-        uc = container.show_uc()
-        v = uc.execute(ghsa_id)
+        uc = container.detail_uc()
+        v = uc.execute(selector)
         if v is None:
             typer.echo("Not found")
             raise typer.Exit(code=1)
