@@ -7,7 +7,7 @@ import pytest
 from cve_collector.core.domain.models import Vulnerability
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.http_client import HttpClient
-from cve_collector.infra.osv_index import OSVAdapter
+from cve_collector.infra.osv_adapter import OSVAdapter
 
 
 def test_osv_enrich_populates_fields_from_cache():
