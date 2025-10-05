@@ -39,7 +39,7 @@ src/cve_collector/
       models.py            # Vulnerability, Repository, Commit 등 불변 도메인 모델
       enums.py             # Severity, ReferenceType 등 열거형
     ports/
-      index_port.py        # 취약점 목록/조회 포트 (OSV 등)
+      index_port.py         # 취약점 목록/조회 포트 (OSV 등)
       enrich_port.py       # 취약점 상세 보강 포트 (GitHub 등)
       cache_port.py        # 캐시 포트 (get/set/clear/TTL)
       rate_limiter_port.py # 레이트리미터 포트 (선택)
@@ -50,7 +50,7 @@ src/cve_collector/
       clear_cache.py            # 모든 캐시 비우기
 
   infra/
-    osv_index.py           # OSV 기반 Index 어댑터 (GHSA 스켈레톤 리스트)
+    osv_adapter.py         # OSV 기반 Adapter (Index + Enrichment 구현)
     github_enrichment.py   # GitHub GraphQL/REST 어댑터 (references→patch/PoC 추출)
     cache_diskcache.py     # diskcache 구현체
     http_client.py         # HTTP 클라이언트 + 타임아웃. JSON object 강제.
@@ -248,18 +248,22 @@ from typing import Sequence
 
 
 class ListVulnerabilitiesUseCase:
-    def __init__(self, index: VulnerabilityListPort) -> None:
+    def __init__(self, index: VulnerabilityIndexPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
         self._index = index
+        self._enricher = enricher
 
-    def execute(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
-        return self._index.list(ecosystem=ecosystem, limit=limit)
+    def execute(self, *, ecosystem: str, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
+        items = self._index.list(ecosystem=ecosystem, limit=limit)
+        if not detailed or not self._enricher:
+            return items
+        return list(self._enricher.enrich_many(items))
 ```
 
 2) 단건 상세 출력용 (식별자 문자열 기반, 필요시 보강 적용)
 
 ```python
 class DetailVulnerabilityUseCase:
-    def __init__(self, index: VulnerabilityListPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
+    def __init__(self, index: VulnerabilityIndexPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
         self._index = index
         self._enricher = enricher
 
@@ -285,7 +289,7 @@ class ClearCacheUseCase:
 
 ## Infra 어댑터 개요
 
-- OSV Adapter (`infra/osv_index.py`)
+- OSV Adapter (`infra/osv_adapter.py`)
   - 역할: OSV Index + Enrichment (두 포트 구현)
   - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일만 필터 → 각 항목을 `osv:ghsa:{id}`로 개별 저장
   - 캐시 키: 각 항목 `osv:ghsa:{GHSA_ID}` (리스트 키 없음)
@@ -297,7 +301,7 @@ class ClearCacheUseCase:
     - `severity`: OSV `severity` 존재 시 최소 `UNKNOWN`
     - `summary`/`description`: OSV `summary`/`details`로 보완
     - `published_at`/`modified_at`: ISO 타임스탬프 파싱
-    - `repositories`/`commits`/`poc_urls`: OSV `references`의 GitHub URL/PoC 키워드 기반 추출
+    - `repositories`/`commits`/`poc_urls`: OSV `references`의 타입/URL을 활용해 추출 (예: FIX/WEB/OTHER → 커밋 우선, PACKAGE/WEB → 저장소, WEB/OTHER → PoC 후보 URL)
   - 출력: `Vulnerability(ghsa_id=..., cve_id=aliases[0], summary)`
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
@@ -326,6 +330,7 @@ class ClearCacheUseCase:
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
 - `cve_collector list --ecosystem npm --limit 50`
+- `cve_collector list -d` (또는 `--detail`)
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector clear`
@@ -387,7 +392,7 @@ class Container(containers.DeclarativeContainer):
 
 ## 출력 규칙 (app 레벨)
 
-- 리스트: GHSA, CVE(있으면), 주요 레포(`owner/name★stars`), 심각도, 발행일(있으면)
+- 리스트: 기본 GHSA, CVE만 출력. `--detail` 사용 시 주요 레포(`owner/name★stars`), 심각도 컬럼을 추가로 출력한다.
 - 단건: 요약, 심각도, 발행/수정일, 레포 목록, 커밋 목록(짧은 해시+URL), PoC 링크
 - 컬러링/폭 자르기 등 프리젠테이션은 app에서만 처리하고, core/infra는 관여하지 않는다.
 

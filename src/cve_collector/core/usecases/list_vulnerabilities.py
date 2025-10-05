@@ -3,12 +3,12 @@ from __future__ import annotations
 from typing import Sequence
 
 from ..domain.models import Vulnerability
-from ..ports.list_port import VulnerabilityListPort
+from ..ports.index_port import VulnerabilityIndexPort
 from ..ports.enrich_port import VulnerabilityEnrichmentPort
 
 
 class ListVulnerabilitiesUseCase:
-    def __init__(self, index: VulnerabilityListPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
+    def __init__(self, index: VulnerabilityIndexPort, enricher: VulnerabilityEnrichmentPort | None = None) -> None:
         self._index = index
         self._enricher = enricher
 

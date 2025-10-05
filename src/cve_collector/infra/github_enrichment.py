@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
-
 from ..core.domain.models import Commit, Repository, Vulnerability
 from ..core.ports.cache_port import CachePort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from ..shared.utils import is_poc_url, parse_github_commit_url, parse_github_repo_url
+from ..core.ports.raw_port import RawProviderPort
 from ..core.domain.enums import Severity
 from .http_client import HttpClient
 from .schemas import GitHubAdvisory, GhReference
@@ -14,7 +13,7 @@ from ..config.urls import get_github_advisory_url
 
 
 
-class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort):
+class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort, RawProviderPort):
     def __init__(self, cache: CachePort, http_client: HttpClient) -> None:
         self._cache = cache
         self._http = http_client
@@ -28,28 +27,26 @@ class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort):
         - poc_urls: select references heuristically matching PoC keywords
         """
         key = f"gh_advisory:{v.ghsa_id}"
-        raw_bytes = self._cache.get(key)
-        if raw_bytes is not None:
-            raw = json.loads(raw_bytes.decode("utf-8"))
-        else:
+        data = self._cache.get_json(key)
+        if data is None:
             url = get_github_advisory_url(v.ghsa_id)
-            raw = self._http.get_json(url)
-            self._cache.set(key, json.dumps(raw).encode("utf-8"))
+            data = self._http.get_json(url)
+            self._cache.set_json(key, data)
 
-        data = GitHubAdvisory.model_validate(raw)
+        advisory = GitHubAdvisory.model_validate(data)
 
         # Severity
         severity: Severity | None = None
-        if data.severity is not None:
+        if advisory.severity is not None:
             try:
-                severity = Severity[data.severity.upper()]
+                severity = Severity[advisory.severity.upper()]
             except KeyError:
                 severity = None
 
         # Identifiers → CVE
         cve_id: str | None = v.cve_id
-        if data.identifiers:
-            for ident in data.identifiers:
+        if advisory.identifiers:
+            for ident in advisory.identifiers:
                 if ident.type == "CVE":
                     cve_id = ident.value
                     break
@@ -58,7 +55,7 @@ class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort):
         repo_map: dict[str, Repository] = {}
         commits: list[Commit] = []
         poc_urls: list[str] = []
-        references = data.references or []
+        references = advisory.references or []
         if references:
             for ref in references:
                 url = ref.url if isinstance(ref, GhReference) else (ref if isinstance(ref, str) else "")
@@ -92,5 +89,22 @@ class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort):
         )
 
     # enrich_many provided by VulnerabilityEnrichmentPort default implementation
+
+    def get_raw(self, selector: str) -> dict | None:
+        """Return raw GitHub advisory JSON for a GHSA selector, or None if unsupported or missing."""
+        sel = selector.strip()
+        if not sel.upper().startswith("GHSA-"):
+            return None
+        key = f"gh_advisory:{sel}"
+        data = self._cache.get_json(key)
+        if isinstance(data, dict):
+            return data
+        url = get_github_advisory_url(sel)
+        try:
+            data = self._http.get_json(url)
+        except Exception:
+            return None
+        self._cache.set_json(key, data)
+        return data
 
 

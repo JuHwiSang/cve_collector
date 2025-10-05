@@ -6,6 +6,7 @@ from ..core.services.composite_enricher import CompositeEnricher
 from ..core.usecases.clear_cache import ClearCacheUseCase
 from ..core.usecases.list_vulnerabilities import ListVulnerabilitiesUseCase
 from ..core.usecases.detail_vulnerability import DetailVulnerabilityUseCase
+from ..core.usecases.raw_dump import RawDumpUseCase
 from ..infra.cache_diskcache import DiskCacheAdapter
 from ..infra.github_enrichment import GitHubAdvisoryEnricher
 from ..infra.osv_adapter import OSVAdapter
@@ -52,11 +53,16 @@ class Container(containers.DeclarativeContainer):
 		providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
 		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client),
 	)
+ 
+	raw_providers = providers.List(
+		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client),
+	)
 
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
 	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
 	detail_uc = providers.Factory(DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
+	raw_uc = providers.Factory(RawDumpUseCase, providers=raw_providers)
 	clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)
 
 
