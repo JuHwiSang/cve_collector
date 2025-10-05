@@ -126,8 +126,8 @@ def _print_detail(v: Vulnerability) -> None:
             print(f"  - {url}")
 
 
-@app.command(help="Dump raw JSON payloads for selector across configured providers (e.g., GHSA-...).")
-def raw(selector: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as supported)")) -> None:
+@app.command("dump", help="Dump raw JSON payloads for selector across configured providers (e.g., GHSA-...).")
+def dump(selector: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as supported)")) -> None:
     with provide_container() as container:
         uc = container.raw_uc()
         payloads = uc.execute(selector)

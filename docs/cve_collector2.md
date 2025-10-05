@@ -41,12 +41,14 @@ src/cve_collector/
     ports/
       index_port.py         # 취약점 목록/조회 포트 (OSV 등)
       enrich_port.py       # 취약점 상세 보강 포트 (GitHub 등)
+      raw_port.py          # 원본(raw) JSON 제공 포트
       cache_port.py        # 캐시 포트 (get/set/clear/TTL)
       rate_limiter_port.py # 레이트리미터 포트 (선택)
       clock_port.py        # 시계/시간 포트 (테스트 용이성)
     usecases/
       list_vulnerabilities.py   # 전체 리스트 가져오기 (스켈레톤 혹은 경량 보강)
       detail_vulnerability.py   # 단건 상세 조회 + 보강 (식별자 문자열 기반)
+      raw_dump.py               # 여러 RawProvider로부터 원본 JSON 배열 수집
       clear_cache.py            # 모든 캐시 비우기
 
   infra/
@@ -205,6 +207,12 @@ class VulnerabilityEnrichmentPort(Protocol):
             yield self.enrich(v)
 
 
+class RawProviderPort(Protocol):
+    def get_raw(self, selector: str) -> dict | None:
+        """식별자(GHSA-..., CVE-...)에 대한 원본 JSON을 반환. 없으면 None."""
+        ...
+
+
 class CachePort(Protocol):
     def get(self, key: str) -> bytes | None: ...
     def set(self, key: str, value: bytes, ttl_seconds: int | None = None) -> None: ...
@@ -276,7 +284,23 @@ class DetailVulnerabilityUseCase:
         return self._enricher.enrich(v)
 ```
 
-3) 모든 캐시 삭제
+3) Raw 덤프 (원본 JSON 모음)
+
+```python
+class RawDumpUseCase:
+    def __init__(self, providers: Sequence[RawProviderPort]) -> None:
+        self._providers = tuple(providers)
+
+    def execute(self, selector: str) -> list[dict]:
+        results: list[dict] = []
+        for p in self._providers:
+            payload = p.get_raw(selector)
+            if payload is not None:
+                results.append(payload)
+        return results
+```
+
+4) 모든 캐시 삭제
 
 ```python
 class ClearCacheUseCase:
@@ -314,6 +338,7 @@ class ClearCacheUseCase:
   - URL: `config/urls.py`의 `get_github_advisory_url(ghsa_id)` 사용 (문자열 결합 금지)
   - RateLimit: RateLimiterPort 사용. (권장: 초당 1.5 req REST, 2-3 배치/초 GraphQL)
   - 참고: [docs/github_구조.md](./github_구조.md)
+  - Raw: `RawProviderPort` 구현. `get_raw("GHSA-...")` → 캐시 또는 네트워크에서 GitHub Advisory 원본 JSON 반환. 다른 식별자/에러는 None 반환.
 
 - DiskCache (`infra/cache_diskcache.py`)
   - 역할: `get/set/clear_all` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
@@ -333,6 +358,7 @@ class ClearCacheUseCase:
 - `cve_collector list -d` (또는 `--detail`)
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
+- `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
 - `cve_collector clear`
 - 설치 및 실행:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
@@ -370,10 +396,14 @@ class Container(containers.DeclarativeContainer):
   enrichers = providers.List(
     providers.Factory(GitHubAdvisoryEnricher, cache=cache),
   )
+  raw_providers = providers.List(
+    providers.Factory(GitHubAdvisoryEnricher, cache=cache),
+  )
   composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
   list_uc = providers.Factory(list_vulnerabilities.ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
   detail_uc = providers.Factory(detail_vulnerability.DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
+  raw_uc = providers.Factory(raw_dump.RawDumpUseCase, providers=raw_providers)
   clear_cache_uc = providers.Factory(clear_cache.ClearCacheUseCase, cache=cache)
 ```
 
