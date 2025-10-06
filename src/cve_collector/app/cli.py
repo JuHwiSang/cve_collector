@@ -85,13 +85,13 @@ def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None
     - With detail=True: columns GHSA, CVE, Repository, Stars, Severity (requires enrichment)
     """
     if detail:
-        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>6} {'Severity'}")
+        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>7} {'Severity'}")
         for v in vulns:
             repo = v.repositories[0].slug if v.repositories else "-"
             stars = v.repositories[0].star_count if v.repositories else None
-            star_s = f"★{stars}" if stars is not None else "-"
+            star_s = f"{stars}" if stars is not None else " -"
             sev = v.severity.name if v.severity else "-"
-            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>6} {sev}")
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>7} {sev}")
     else:
         print(f"{'GHSA':22} {'CVE':17}")
         for v in vulns:
