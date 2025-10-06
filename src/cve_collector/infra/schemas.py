@@ -12,7 +12,7 @@ class OsvVulnerability(BaseModel):
 	details: str | None = None
 	modified: str | None = None
 	published: str | None = None
-	severity: list["OsvSeverity"] | str | None = None
+	severity: list["OsvSeverity"] | None = None
 	references: list["OsvReference"] | None = None
 	database_specific: Optional["OsvDatabaseSpecific"] = None
 

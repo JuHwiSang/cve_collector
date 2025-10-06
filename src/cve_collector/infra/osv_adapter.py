@@ -125,29 +125,24 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
         # Severity from OSV (prefer highest CVSS score or explicit level)
         severity: Severity | None = v.severity
         if osv.severity:
-            if isinstance(osv.severity, str):
-                lvl = Severity.from_str(osv.severity)
+            # Pick the most recent CVSS type and convert its score via Severity.from_str
+            def _prio(t: str) -> int:
+                u = t.upper().replace("-", "_")
+                if "V4" in u:
+                    return 4
+                if "V3.1" in t or "V3_1" in u or "V31" in u:
+                    return 3
+                if "V3" in u:
+                    return 2
+                if "V2" in u:
+                    return 1
+                return 0
+
+            chosen = max(osv.severity, key=lambda e: _prio(e.type)) if len(osv.severity) > 0 else None
+            if chosen is not None:
+                lvl = Severity.from_str(str(chosen.score))
                 if lvl is not None:
                     severity = lvl
-            else:
-                # Pick the most recent CVSS type and convert its score via Severity.from_str
-                def _prio(t: str) -> int:
-                    u = t.upper().replace("-", "_")
-                    if "V4" in u:
-                        return 4
-                    if "V3.1" in t or "V3_1" in u or "V31" in u:
-                        return 3
-                    if "V3" in u:
-                        return 2
-                    if "V2" in u:
-                        return 1
-                    return 0
-
-                chosen = max(osv.severity, key=lambda e: _prio(e.type)) if len(osv.severity) > 0 else None
-                if chosen is not None:
-                    lvl = Severity.from_str(str(chosen.score))
-                    if lvl is not None:
-                        severity = lvl
 
         # Summary/Description/Details
         summary = v.summary or osv.summary
