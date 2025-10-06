@@ -58,6 +58,7 @@ class Vulnerability:
 
     summary: Optional[str] = None
     description: Optional[str] = None
+    details: Optional[str] = None
 
     severity: Optional[Severity] = None
     published_at: Optional[datetime] = None

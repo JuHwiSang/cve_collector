@@ -15,6 +15,7 @@ from .http_client import HttpClient
 from .schemas import OsvVulnerability
 from ..config.urls import get_osv_zip_url, get_osv_vuln_url
 from ..shared.utils import parse_github_commit_url, parse_github_repo_url, is_poc_url
+from ..shared.severity import derive_severity_from_osv_entries
 
 
 
@@ -100,7 +101,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         """Enrich fields from OSV:
 
         - cve_id: from aliases
-        - severity: UNKNOWN if OSV carries any severity entries
+        - severity: derive from OSV severity list (map CVSS score or level to enum)
         - summary/description: fallback from OSV
         - published_at/modified_at: parsed from ISO timestamps
         - repositories/commits: parsed from references (GitHub repo/commit URLs)
@@ -121,14 +122,17 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
                 cve_id = a
                 break
 
-        # Severity (best-effort from presence)
+        # Severity from OSV (prefer highest CVSS score or explicit level)
         severity: Severity | None = v.severity
         if osv.severity:
-            severity = severity or Severity.UNKNOWN
+            lvl = derive_severity_from_osv_entries(tuple(osv.severity))
+            if lvl is not None:
+                severity = lvl
 
-        # Summary/Description
+        # Summary/Description/Details
         summary = v.summary or osv.summary
         description = v.description or osv.details
+        details = v.details or osv.details
 
         # Timestamps
         published_at = v.published_at
@@ -187,6 +191,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
             repositories=tuple(repo_map.values()) if repo_map else v.repositories,
             commits=tuple(commits) if commits else v.commits,
             poc_urls=tuple(poc_urls) if poc_urls else v.poc_urls,
+            details=details,
         )
 
     # enrich_many provided by VulnerabilityEnrichmentPort default implementation
