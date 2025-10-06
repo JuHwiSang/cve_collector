@@ -5,7 +5,7 @@ import tempfile
 
 from cve_collector.core.domain.models import Vulnerability
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
-from cve_collector.infra.github_enrichment import GitHubAdvisoryEnricher
+from cve_collector.infra.github_enrichment import GitHubRepoEnricher
 from cve_collector.infra.http_client import HttpClient
 
 
@@ -30,7 +30,9 @@ def test_github_enricher_enriches_from_http_when_cache_empty():
                 ],
                 "identifiers": [{"type": "CVE", "value": "CVE-2024-0001"}],
             }
-            enricher = GitHubAdvisoryEnricher(cache=cache, http_client=_StubHttp(payload))
+            # AppConfig required, but tests may not use DI; pass a minimal stub
+            from cve_collector.config.types import AppConfig
+            enricher = GitHubRepoEnricher(cache=cache, http_client=_StubHttp(payload), app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7))
             v = Vulnerability(ghsa_id="GHSA-1")
             out = enricher.enrich(v)
             assert out.cve_id == "CVE-2024-0001"
@@ -50,7 +52,8 @@ def test_github_enricher_uses_cache_if_present():
                 "identifiers": [{"type": "CVE", "value": "CVE-2024-0042"}],
             }
             cache.set(key, json.dumps(cached).encode("utf-8"))
-            enricher = GitHubAdvisoryEnricher(cache=cache, http_client=_StubHttp({}))
+            from cve_collector.config.types import AppConfig
+            enricher = GitHubRepoEnricher(cache=cache, http_client=_StubHttp({}), app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7))
             v = Vulnerability(ghsa_id="GHSA-42")
             out = enricher.enrich(v)
             assert out.cve_id == "CVE-2024-0042"

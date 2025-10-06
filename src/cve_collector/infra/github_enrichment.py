@@ -11,7 +11,7 @@ from ..config.types import AppConfig
 
 
 
-class GitHubAdvisoryEnricher(VulnerabilityEnrichmentPort, RawProviderPort):
+class GitHubRepoEnricher(VulnerabilityEnrichmentPort, RawProviderPort):
     def __init__(self, cache: CachePort, http_client: HttpClient, app_config: AppConfig) -> None:
         self._cache = cache
         self._http = http_client

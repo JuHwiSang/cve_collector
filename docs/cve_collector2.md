@@ -374,7 +374,7 @@ from cve_collector.config.types import AppConfig
 from cve_collector.core.services.composite_enricher import CompositeEnricher
 from cve_collector.core.usecases import list_vulnerabilities, detail_vulnerability, clear_cache
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
-from cve_collector.infra.github_enrichment import GitHubAdvisoryEnricher
+from cve_collector.infra.github_enrichment import GitHubRepoEnricher
 from cve_collector.infra.osv_adapter import OSVAdapter
 from cve_collector.infra.rate_limiter import SimpleRateLimiter
 
@@ -394,10 +394,10 @@ class Container(containers.DeclarativeContainer):
   index = providers.Factory(OSVAdapter, cache=cache)
 
   enrichers = providers.List(
-    providers.Factory(GitHubAdvisoryEnricher, cache=cache),
+    providers.Factory(GitHubRepoEnricher, cache=cache),
   )
   raw_providers = providers.List(
-    providers.Factory(GitHubAdvisoryEnricher, cache=cache),
+    providers.Factory(GitHubRepoEnricher, cache=cache),
   )
   composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
@@ -434,7 +434,7 @@ class Container(containers.DeclarativeContainer):
 ## 구현 로드맵 (제안)
 
 1. shared/core 뼈대 생성: `domain.models`, `ports`, `usecases`
-2. infra 최소 구현: `OSVIndexAdapter`(로컬 파일/한정된 API) → `GitHubAdvisoryEnricher`
+2. infra 최소 구현: `OSVIndexAdapter`(로컬 파일/한정된 API) → `GitHubRepoEnricher`
 3. cache/http/rate_limiter 어댑터 도입 및 DI 연결
 4. app/cli 구현: `list`, `show`, `cache clear` 명령
 5. 테스트 정비(pyproject의 optional deps 활용), 출력 포맷팅 개선, 동시성 최적화, 캐시 전략 튜닝
