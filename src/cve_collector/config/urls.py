@@ -13,3 +13,7 @@ def get_github_advisory_url(ghsa_id: str) -> str:
 	return f"https://api.github.com/advisories/{ghsa_id}"
 
 
+def get_github_repo_url(owner: str, name: str) -> str:
+    return f"https://api.github.com/repos/{owner}/{name}"
+
+

@@ -51,11 +51,11 @@ class Container(containers.DeclarativeContainer):
 
 	enrichers = providers.List(
 		providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
-		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client),
+		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client, app_config=app_config),
 	)
- 
+
 	raw_providers = providers.List(
-		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client),
+		providers.Factory(GitHubAdvisoryEnricher, cache=cache, http_client=github_http_client, app_config=app_config),
 	)
 
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
