@@ -10,7 +10,7 @@ def run_cli(args: list[str], env: dict[str, str] | None = None) -> subprocess.Co
 
 
 def test_cli_dump_missing_arg_exits_2():
-	cp = run_cli(["dump"])  # missing selector
+	cp = run_cli(["dump"])  # missing id
 	assert cp.returncode == 2
 	assert "Missing argument" in cp.stderr
 
@@ -31,19 +31,16 @@ def test_cli_dump_network_e2e(tmp_path):
 		assert isinstance(item, dict)
 
 	first = data[0]
-	# Either ghsa_id field matches, or identifiers contain the GHSA
-	ghsa_matches_field = isinstance(first.get("ghsa_id"), str) and first.get("ghsa_id", "").upper() == ghsa.upper()
-	ghsa_in_identifiers = False
-	idents = first.get("identifiers")
-	if isinstance(idents, list):
-		for ident in idents:
-			if isinstance(ident, dict) and ident.get("type") == "GHSA" and isinstance(ident.get("value"), str):
-				if ident["value"].upper() == ghsa.upper():
-					ghsa_in_identifiers = True
-					break
-	assert ghsa_matches_field or ghsa_in_identifiers
-
-	# Expect at least one URL-like field to exist
-	assert any(k in first for k in ["url", "html_url", "repository_advisory_url"]) 
+	# OSV payload should have id and summary
+	assert first.get("id") == ghsa
+	assert "summary" in first and isinstance(first["summary"], str)
+	# Aliases may contain CVE
+	aliases = first.get("aliases")
+	if isinstance(aliases, list):
+		assert any(isinstance(a, str) and a.startswith("CVE-") for a in aliases)
+	# References list contains URLs
+	refs = first.get("references")
+	if isinstance(refs, list) and len(refs) > 0:
+		assert any(isinstance(r, dict) and isinstance(r.get("url"), str) for r in refs)
 
 

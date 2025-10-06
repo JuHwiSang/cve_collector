@@ -54,15 +54,15 @@ class Container(containers.DeclarativeContainer):
 		providers.Factory(GitHubRepoEnricher, cache=cache, http_client=github_http_client, app_config=app_config),
 	)
 
-	raw_providers = providers.List(
-		providers.Factory(GitHubRepoEnricher, cache=cache, http_client=github_http_client, app_config=app_config),
+	dump_providers = providers.List(
+		providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
 	)
 
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
 	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
 	detail_uc = providers.Factory(DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
-	raw_uc = providers.Factory(RawDumpUseCase, providers=raw_providers)
+	dump_uc = providers.Factory(RawDumpUseCase, providers=dump_providers)
 	clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)
 
 

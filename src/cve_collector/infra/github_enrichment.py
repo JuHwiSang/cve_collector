@@ -3,7 +3,7 @@ from __future__ import annotations
 from ..core.domain.models import Repository, Vulnerability
 from ..core.ports.cache_port import CachePort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
-from ..core.ports.raw_port import RawProviderPort
+from ..core.ports.dump_port import DumpProviderPort
 from .http_client import HttpClient
 from ..config.urls import get_github_advisory_url, get_github_repo_url
 from ..config.types import AppConfig
@@ -11,7 +11,7 @@ from ..config.types import AppConfig
 
 
 
-class GitHubRepoEnricher(VulnerabilityEnrichmentPort, RawProviderPort):
+class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
     def __init__(self, cache: CachePort, http_client: HttpClient, app_config: AppConfig) -> None:
         self._cache = cache
         self._http = http_client
@@ -56,16 +56,15 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, RawProviderPort):
 
     # enrich_many provided by VulnerabilityEnrichmentPort default implementation
 
-    def get_raw(self, selector: str) -> dict | None:
-        """Return raw GitHub advisory JSON for a GHSA selector, or None if unsupported or missing."""
-        sel = selector.strip()
-        if not sel.upper().startswith("GHSA-"):
+    def dump(self, id: str) -> dict | None:
+        """Return raw GitHub advisory JSON for a GHSA id, or None if unsupported or missing."""
+        if not id.upper().startswith("GHSA-"):
             return None
-        key = f"gh_advisory:{sel}"
+        key = f"gh_advisory:{id}"
         data = self._cache.get_json(key)
         if isinstance(data, dict):
             return data
-        url = get_github_advisory_url(sel)
+        url = get_github_advisory_url(id)
         try:
             data = self._http.get_json(url)
         except Exception:

@@ -37,14 +37,14 @@ def list_cmd(
 
 
 @app.command(help=(
-    "Show details for selector (GHSA-... or CVE-...). Prints: GHSA, CVE, Summary, "
+    "Show details for id (GHSA-... or CVE-...). Prints: GHSA, CVE, Summary, "
     "Severity, Published, Modified, Repositories (slug★stars + URL), Commits "
     "(repo@short_hash + URL), PoC links."
 ))
-def detail(selector: str = typer.Argument(..., help="Vulnerability identifier (e.g., GHSA-xxxx or CVE-xxxx)")) -> None:
+def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., GHSA-xxxx or CVE-xxxx)")) -> None:
     with provide_container() as container:
         uc = container.detail_uc()
-        v = uc.execute(selector)
+        v = uc.execute(id)
         if v is None:
             typer.echo("Not found")
             raise typer.Exit(code=1)
@@ -126,11 +126,11 @@ def _print_detail(v: Vulnerability) -> None:
             print(f"  - {url}")
 
 
-@app.command("dump", help="Dump raw JSON payloads for selector across configured providers (e.g., GHSA-...).")
-def dump(selector: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as supported)")) -> None:
+@app.command("dump", help="Dump raw JSON payloads for id across configured providers (e.g., GHSA-...).")
+def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as supported)")) -> None:
     with provide_container() as container:
-        uc = container.raw_uc()
-        payloads = uc.execute(selector)
+        uc = container.dump_uc()
+        payloads = uc.execute(id)
         # Print a JSON array of provider payloads
         print(json.dumps(payloads, ensure_ascii=False, indent=2))
 

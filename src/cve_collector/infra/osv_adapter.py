@@ -5,17 +5,19 @@ import json
 import io
 import zipfile
 from datetime import datetime
-
+from pydantic import ValidationError
 from ..core.domain.models import Vulnerability, Repository, Commit
 from ..core.domain.enums import Severity
 from ..core.ports.cache_port import CachePort
 from ..core.ports.index_port import VulnerabilityIndexPort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
+from ..core.ports.dump_port import DumpProviderPort
 from .http_client import HttpClient
 from .schemas import OsvVulnerability
 from ..config.urls import get_osv_zip_url, get_osv_vuln_url
 from ..shared.utils import parse_github_commit_url, parse_github_repo_url, is_poc_url
-from ..shared.severity import derive_severity_from_osv_entries
+from ..core.domain.enums import Severity
+
 
 
 
@@ -29,18 +31,18 @@ def _to_domain(osv: OsvVulnerability) -> Vulnerability:
     return Vulnerability(ghsa_id=osv.id, cve_id=cve_id, summary=osv.summary)
 
 
-class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
+class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProviderPort):
     def __init__(self, cache: CachePort, http_client: HttpClient) -> None:
         self._cache = cache
         self._http = http_client
 
     def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
         result: list[Vulnerability] = []
-        keys = list(self._cache.iter_keys("osv:ghsa:"))
+        keys = list(self._cache.iter_keys("osv:"))
         if not keys:
             # No cached entries yet; ingest for the requested ecosystem
             self.ingest_zip(ecosystem)
-            keys = list(self._cache.iter_keys("osv:ghsa:"))
+            keys = list(self._cache.iter_keys("osv:"))
         for key in keys:
             osv = self._cache.get_model(key, OsvVulnerability)  # raises if invalid JSON
             if osv is None:
@@ -50,30 +52,15 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
                 break
         return result
 
-    def get(self, selector: str) -> Vulnerability | None:
-        sel = selector.strip()
-        if sel.upper().startswith("GHSA-"):
-            return self.get_by_ghsa(sel)
-        if sel.upper().startswith("CVE-"):
-            # OSV is GHSA-centric in our adapter; try to resolve by scanning cache
-            # for an entry whose aliases include the CVE, otherwise fetch by GHSA
-            # is not possible without a mapping. We attempt a best-effort scan.
-            for key in self._cache.iter_keys("osv:ghsa:"):
-                osv = self._cache.get_model(key, OsvVulnerability)
-                if osv and any(a == sel for a in (osv.aliases or [])):
-                    return _to_domain(osv)
-            # Fallback: no mapping found
+    def get(self, id: str) -> Vulnerability | None:
+        # Use dump() to fetch/cache by id (GHSA-... or CVE-...)
+        raw = self.dump(id)
+        if raw is None:
             return None
-        raise ValueError(f"Unsupported selector: {selector}")
-
-    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None:
-        key = f"osv:ghsa:{ghsa_id}"
-        osv = self._cache.get_model(key, OsvVulnerability)
-        if osv is None:
-            url = get_osv_vuln_url(ghsa_id)
-            raw = self._http.get_json(url)  # raise on HTTP/JSON invariants
+        try:
             osv = OsvVulnerability.model_validate(raw)
-            self._cache.set_model(key, osv)
+        except ValidationError as e:
+            return None
         return _to_domain(osv)
 
     def ingest_zip(self, ecosystem: str) -> int:
@@ -93,9 +80,21 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
                 data = json.loads(raw_text)
                 osv = OsvVulnerability.model_validate(data)
                 ghsa_id = osv.id
-                self._cache.set_model(f"osv:ghsa:{ghsa_id}", osv)
+                self._cache.set_model(f"osv:{ghsa_id}", osv)
                 count += 1
         return count
+
+    def dump(self, id: str) -> dict | None:
+        if id.upper().startswith("GHSA-"):
+            key = f"osv:{id}"
+            data = self._cache.get_json(key)
+            if isinstance(data, dict):
+                return data
+            # Fetch from network and cache
+            raw = self._http.get_json(get_osv_vuln_url(id))
+            self._cache.set_json(key, raw)
+            return raw
+        return None
 
     def enrich(self, v: Vulnerability) -> Vulnerability:
         """Enrich fields from OSV:
@@ -107,11 +106,12 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         - repositories/commits: parsed from references (GitHub repo/commit URLs)
         - poc_urls: references heuristically matching PoC keywords
         """
-        key = f"osv:ghsa:{v.ghsa_id}"
+        key = f"osv:{v.ghsa_id}"
         osv = self._cache.get_model(key, OsvVulnerability)
         if osv is None:
-            url = get_osv_vuln_url(v.ghsa_id)
-            raw = self._http.get_json(url)
+            raw = self.dump(v.ghsa_id)
+            if raw is None:
+                raise ValueError(f"OSV not found for {v.ghsa_id}")
             osv = OsvVulnerability.model_validate(raw)
             self._cache.set_model(key, osv)
         
@@ -125,9 +125,29 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort):
         # Severity from OSV (prefer highest CVSS score or explicit level)
         severity: Severity | None = v.severity
         if osv.severity:
-            lvl = derive_severity_from_osv_entries(tuple(osv.severity))
-            if lvl is not None:
-                severity = lvl
+            if isinstance(osv.severity, str):
+                lvl = Severity.from_str(osv.severity)
+                if lvl is not None:
+                    severity = lvl
+            else:
+                # Pick the most recent CVSS type and convert its score via Severity.from_str
+                def _prio(t: str) -> int:
+                    u = t.upper().replace("-", "_")
+                    if "V4" in u:
+                        return 4
+                    if "V3.1" in t or "V3_1" in u or "V31" in u:
+                        return 3
+                    if "V3" in u:
+                        return 2
+                    if "V2" in u:
+                        return 1
+                    return 0
+
+                chosen = max(osv.severity, key=lambda e: _prio(e.type)) if len(osv.severity) > 0 else None
+                if chosen is not None:
+                    lvl = Severity.from_str(str(chosen.score))
+                    if lvl is not None:
+                        severity = lvl
 
         # Summary/Description/Details
         summary = v.summary or osv.summary

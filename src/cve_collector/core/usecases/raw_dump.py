@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from ..ports.raw_port import RawProviderPort
+from ..ports.dump_port import DumpProviderPort
 
 
 class RawDumpUseCase:
-    def __init__(self, providers: Sequence[RawProviderPort]) -> None:
+    def __init__(self, providers: Sequence[DumpProviderPort]) -> None:
         self._providers = tuple(providers)
 
-    def execute(self, selector: str) -> list[dict]:
+    def execute(self, id: str) -> list[dict]:
         results: list[dict] = []
         for p in self._providers:
-            payload = p.get_raw(selector)
+            payload = p.dump(id)
             if payload is not None:
                 results.append(payload)
         return results

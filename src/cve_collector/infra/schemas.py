@@ -12,8 +12,9 @@ class OsvVulnerability(BaseModel):
 	details: str | None = None
 	modified: str | None = None
 	published: str | None = None
-	severity: list["OsvSeverity"] | None = None
+	severity: list["OsvSeverity"] | str | None = None
 	references: list["OsvReference"] | None = None
+	database_specific: Optional["OsvDatabaseSpecific"] = None
 
 
 class GhIdentifier(BaseModel):
@@ -40,5 +41,13 @@ class OsvSeverity(BaseModel):
 class OsvReference(BaseModel):
 	type: str | None = None
 	url: str
+
+
+class OsvDatabaseSpecific(BaseModel):
+	severity: Optional[str] = None
+	nvd_published_at: Optional[str] = None
+	cwe_ids: list[str] | None = None
+	github_reviewed: Optional[bool] = None
+	github_reviewed_at: Optional[str] = None
 
 

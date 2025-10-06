@@ -13,7 +13,7 @@ from cve_collector.infra.osv_adapter import OSVAdapter
 def test_osv_enrich_populates_fields_from_cache():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
-            key = "osv:ghsa:GHSA-aaaa-bbbb-cccc"
+            key = "osv:GHSA-aaaa-bbbb-cccc"
             payload = {
                 "id": "GHSA-aaaa-bbbb-cccc",
                 "aliases": ["CVE-2020-1234"],
@@ -37,7 +37,7 @@ def test_osv_enrich_populates_fields_from_cache():
             assert v.cve_id == "CVE-2020-1234"
             assert v.summary == "Summary from OSV"
             assert v.description == "Details from OSV"
-            assert v.severity is not None and v.severity.name == "UNKNOWN"
+            assert v.severity is not None and v.severity.name == "HIGH"
             assert v.published_at is not None and v.modified_at is not None
             # Repositories/commits/PoC
             assert any(r.slug == "owner/name" for r in v.repositories)
@@ -63,7 +63,7 @@ def test_osv_get_by_ghsa_fetches_and_caches_when_missing():
                 "summary": "S",
             }
             adapter = OSVAdapter(cache=cache, http_client=_StubHttp(payload))
-            v = adapter.get_by_ghsa("GHSA-zzzz-yyyy-xxxx")
+            v = adapter.get("GHSA-zzzz-yyyy-xxxx")
             assert v is not None
             assert v.ghsa_id == "GHSA-zzzz-yyyy-xxxx"
             assert v.cve_id == "CVE-2024-4242"
@@ -74,7 +74,7 @@ def test_osv_list_scans_cache_entries():
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             for ghsa in ("GHSA-1", "GHSA-2"):
                 raw = {"id": ghsa, "aliases": [], "summary": ghsa}
-                cache.set(f"osv:ghsa:{ghsa}", json.dumps(raw).encode("utf-8"))
+                cache.set(f"osv:{ghsa}", json.dumps(raw).encode("utf-8"))
             adapter = OSVAdapter(cache=cache, http_client=HttpClient())
             lst = adapter.list(ecosystem="npm")
             ids = {v.ghsa_id for v in lst}
@@ -86,7 +86,7 @@ def test_osv_list_respects_limit():
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             for ghsa in ("GHSA-1", "GHSA-2", "GHSA-3"):
                 raw = {"id": ghsa, "aliases": [], "summary": ghsa}
-                cache.set(f"osv:ghsa:{ghsa}", json.dumps(raw).encode("utf-8"))
+                cache.set(f"osv:{ghsa}", json.dumps(raw).encode("utf-8"))
             adapter = OSVAdapter(cache=cache, http_client=HttpClient())
             lst = adapter.list(ecosystem="npm", limit=2)
             assert len(lst) == 2
@@ -95,7 +95,7 @@ def test_osv_list_respects_limit():
 def test_osv_list_raises_on_invalid_json():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
-            cache.set("osv:ghsa:BAD", b"not-json")
+            cache.set("osv:BAD", b"not-json")
             adapter = OSVAdapter(cache=cache, http_client=HttpClient())
             with pytest.raises(json.JSONDecodeError):
                 adapter.list(ecosystem="any")
