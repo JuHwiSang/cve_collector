@@ -65,6 +65,28 @@ class Severity(Enum):
                         return cls.LOW
                     return None
             except Exception:
+                # If it's a CVSS 4.0 vector, try a lightweight heuristic mapping
+                if u.startswith("CVSS:4.0/"):
+                    # Parse tokens like AV:N, AC:H, VC:L, VI:N, VA:N, ...
+                    try:
+                        parts = s.split('/')
+                        metrics = {}
+                        for part in parts[1:]:
+                            if ':' in part:
+                                k, v = part.split(':', 1)
+                                metrics[k.strip().upper()] = v.strip().upper()
+                        vc = metrics.get('VC')  # Confidentiality impact
+                        vi = metrics.get('VI')  # Integrity impact
+                        va = metrics.get('VA')  # Availability impact
+                        impacts = [vc, vi, va]
+                        if any(x == 'H' for x in impacts):
+                            return cls.HIGH
+                        if any(x == 'L' for x in impacts):
+                            return cls.LOW
+                        # Default when no classic impact metrics present
+                        return None
+                    except Exception:
+                        return None
                 return None
 
         # Numeric string
