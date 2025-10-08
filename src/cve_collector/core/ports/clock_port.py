@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Protocol
+import time
 
 
 class ClockPort(Protocol):
@@ -18,8 +19,6 @@ class SystemClock:
         return datetime.now(timezone.utc)
 
     def sleep(self, seconds: float) -> None:
-        import time
-
         time.sleep(seconds)
 
 
