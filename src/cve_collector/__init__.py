@@ -1,9 +1,14 @@
-"""cve_collector package: app/core/infra/shared."""
+"""cve_collector package: app/core/infra/shared.
+
+Expose library-friendly API functions at the package level.
+"""
+
+from .api import clear_cache, detail, dump, list_vulnerabilities
 
 __all__ = [
-    "__version__",
+    "list_vulnerabilities",
+    "detail",
+    "dump",
+    "clear_cache",
 ]
-
-__version__ = "0.1.0"
-
 
