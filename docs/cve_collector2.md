@@ -22,6 +22,10 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 - 키 포맷: `osv:{ID}`, `gh_advisory:{GHSA_ID}`, `gh_repo:{owner}/{name}`.
 - 테스트 레이어드: core(unit), infra(integration), app(E2E). E2E는 실제 네트워크 호출을 수행하며 안정적인 공개 GHSA 식별자(예: `GHSA-2234-fmw7-43wr`)를 고정 사용한다. 캐시는 테스트 격리를 위해 `CVE_COLLECTOR_CACHE_DIR`로 분리한다.
 
+추가 규약(라이브러리 API):
+- 패키지 레벨 API 제공: `src/cve_collector/api.py`의 함수를 패키지 루트에서 재노출한다(`from cve_collector import list_vulnerabilities, detail, dump, clear_cache`).
+- 각 API 함수는 호출 시 DI 컨테이너를 열고(use case 인스턴스 생성) 작업 종료 후 리소스를 정리한다.
+
 추가 규약:
 - GitHub Advisory의 `references`는 REST 버전에 따라 문자열 리스트 혹은 객체 리스트(`{ url: str }`)로 반환될 수 있다. 스키마는 두 형태를 모두 허용하며, 어댑터는 문자열이면 그대로 URL로, 객체면 `ref.url`로 정규화한다.
 - CLI: 유즈케이스는 도메인 객체만 반환. 프리젠테이션은 app에서 포맷팅.
@@ -30,6 +34,7 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 
 ```
 src/cve_collector/
+  api.py                # 라이브러리 API (DI→유즈케이스 호출/반환)
   app/
     cli.py                 # 단일 진입점 (argparse/typer 등)
     container.py           # DI 조립(선택)
@@ -361,6 +366,30 @@ class ClearCacheUseCase:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
 - 에러 처리: 비정상 상황은 `typer.Exit(code=1)`로 명시 종료. 조용한 fallback 금지.
 - 덕타이핑 금지: `Any`, `cast`, `getattr`, `type: ignore` 금지. 출력 함수 시그니처는 구체 타입(`Sequence[Vulnerability]`, `Vulnerability`).
+
+## 라이브러리 API (api.py)
+
+- 목적: 라이브러리로 사용할 때 간단한 함수 호출로 유즈케이스를 실행한다.
+- DI: 함수마다 내부에서 컨테이너를 생성/초기화하고, 종료 시 리소스를 해제한다.
+- 내보내기: 패키지 루트에서 재노출되어 바로 임포트 가능하다.
+
+사용 예:
+
+```python
+from cve_collector import list_vulnerabilities, detail, dump, clear_cache
+
+# 리스트 (필요 시 상세 보강)
+items = list_vulnerabilities(ecosystem="npm", limit=50, detailed=True)
+
+# 단건 상세 (식별자: GHSA-... 또는 CVE-...)
+v = detail("GHSA-2234-fmw7-43wr")
+
+# 원본 JSON 덤프 (여러 Provider의 페이로드 배열)
+payloads = dump("GHSA-2234-fmw7-43wr")
+
+# 캐시 비우기
+clear_cache()
+```
 
 ## DI 조립 (dependency-injector)
 
