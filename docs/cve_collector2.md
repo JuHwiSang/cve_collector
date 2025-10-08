@@ -19,7 +19,7 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 - import 위치: 모든 import는 파일 최상단에 배치.
 - URL 구성: 어댑터에서 문자열 결합 금지. `config/urls.py`의 `get_*_url` 함수 사용(예: `get_github_advisory_url`, `get_osv_vuln_url`).
 - 캐시 규약: `DiskCacheAdapter`는 bytes 저장/반환이 기본이며, JSON 헬퍼(`get_json/set_json`)와 모델 헬퍼(`get_model/set_model`)를 제공한다. 위반 시 `TypeError`. 컨텍스트 매니저(`with`)로 사용.
- - 키 포맷: `osv:ghsa:{GHSA_ID}`, `gh_advisory:{GHSA_ID}`.
+- 키 포맷: `osv:{ID}`, `gh_advisory:{GHSA_ID}`, `gh_repo:{owner}/{name}`.
 - 테스트 레이어드: core(unit), infra(integration), app(E2E). E2E는 실제 네트워크 호출을 수행하며 안정적인 공개 GHSA 식별자(예: `GHSA-2234-fmw7-43wr`)를 고정 사용한다. 캐시는 테스트 격리를 위해 `CVE_COLLECTOR_CACHE_DIR`로 분리한다.
 
 추가 규약:
@@ -41,7 +41,7 @@ src/cve_collector/
     ports/
       index_port.py         # 취약점 목록/조회 포트 (OSV 등)
       enrich_port.py       # 취약점 상세 보강 포트 (GitHub 등)
-      raw_port.py          # 원본(raw) JSON 제공 포트
+      dump_port.py         # 원본(raw) JSON 제공 포트 (dump)
       cache_port.py        # 캐시 포트 (get/set/clear/TTL)
       rate_limiter_port.py # 레이트리미터 포트 (선택)
       clock_port.py        # 시계/시간 포트 (테스트 용이성)
@@ -207,8 +207,8 @@ class VulnerabilityEnrichmentPort(Protocol):
             yield self.enrich(v)
 
 
-class RawProviderPort(Protocol):
-    def get_raw(self, selector: str) -> dict | None:
+class DumpProviderPort(Protocol):
+    def dump(self, selector: str) -> dict | None:
         """식별자(GHSA-..., CVE-...)에 대한 원본 JSON을 반환. 없으면 None."""
         ...
 
@@ -288,13 +288,13 @@ class DetailVulnerabilityUseCase:
 
 ```python
 class RawDumpUseCase:
-    def __init__(self, providers: Sequence[RawProviderPort]) -> None:
+    def __init__(self, providers: Sequence[DumpProviderPort]) -> None:
         self._providers = tuple(providers)
 
     def execute(self, selector: str) -> list[dict]:
         results: list[dict] = []
         for p in self._providers:
-            payload = p.get_raw(selector)
+            payload = p.dump(selector)
             if payload is not None:
                 results.append(payload)
         return results
@@ -314,31 +314,28 @@ class ClearCacheUseCase:
 ## Infra 어댑터 개요
 
 - OSV Adapter (`infra/osv_adapter.py`)
-  - 역할: OSV Index + Enrichment (두 포트 구현)
-  - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일만 필터 → 각 항목을 `osv:ghsa:{id}`로 개별 저장
-  - 캐시 키: 각 항목 `osv:ghsa:{GHSA_ID}` (리스트 키 없음)
-  - `list(ecosystem, limit)`: 캐시의 `osv:ghsa:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환. 캐시가 비어 있으면 자동으로 ZIP ingest 후 재스캔.
-  - `get(selector)`: 문자열 식별자를 해석하여 단건 조회. `GHSA-...` → GHSA 기반 조회(`get_by_ghsa`), `CVE-...` → 캐시된 OSV 항목의 `aliases`를 스캔하여 매칭되면 반환.
-  - `get_by_ghsa(ghsa_id)`: 캐시 조회 후 미스 시 `get_osv_vuln_url(ghsa_id)`로 직접 페치 → 모델 검증 후 캐시 저장(`set_model`) → 변환 후 반환
+  - 역할: OSV Index + Enrichment + Dump (세 포트 구현)
+  - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일 필터 → 각 항목을 `osv:{id}`로 개별 저장
+  - 캐시 키: 각 항목 `osv:{ID}` (리스트 키 없음)
+  - `list(ecosystem, limit)`: 캐시의 `osv:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환. 캐시가 비어 있으면 자동으로 ZIP ingest 후 재스캔.
+  - `get(selector)`: 문자열 식별자(`GHSA-...`, `CVE-...`)에 대해 `dump(selector)`로 원본을 확보/캐싱한 뒤 모델 검증 → 도메인 변환하여 반환.
+  - `get_by_ghsa(ghsa_id)`: 호환용 편의 메서드로 `get(ghsa_id)` 호출
+  - `dump(selector)`: OSV API에서 식별자 기반으로 JSON을 가져와 `osv:{id}`로 캐시 후 그대로 반환.
   - `enrich(v)`: OSV 정보로 다음 필드를 보강한다
-    - `cve_id`: `aliases`에서 CVE 선택
-    - `severity`: OSV `severity` 존재 시 최소 `UNKNOWN`
-    - `summary`/`description`: OSV `summary`/`details`로 보완
+    - `cve_id`: `aliases`에서 CVE 추출
+    - `severity`: OSV `severity`가 문자열 또는 목록일 수 있으므로, 문자열은 `Severity.from_str`로, 목록은 최신 타입의 `score`를 `Severity.from_str`로 매핑
+    - `summary`/`description`/`details`: OSV `summary`/`details`로 보완하고 `details`도 보존
     - `published_at`/`modified_at`: ISO 타임스탬프 파싱
     - `repositories`/`commits`/`poc_urls`: OSV `references`의 타입/URL을 활용해 추출 (예: FIX/WEB/OTHER → 커밋 우선, PACKAGE/WEB → 저장소, WEB/OTHER → PoC 후보 URL)
-  - 출력: `Vulnerability(ghsa_id=..., cve_id=aliases[0], summary)`
+  - 출력: `Vulnerability(ghsa_id=..., cve_id=..., summary, details, severity, ...)`
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
 - GitHub Enrichment (`infra/github_enrichment.py`)
-  - 역할: GraphQL/REST로 Advisory 조회 → 커밋/PoC/레포 메타 정규화
-    - URL 파싱 → `(owner, name, commit)` 추출 → `Repository`, `Commit` 구성
-    - PoC 키워드 매칭(`poc|exploit|demo|payload|reproduce`) → `poc_urls` 채움
-    - 참고: REST의 `references`는 문자열 또는 객체(`{ url: str }`)일 수 있으므로, 문자열/객체 양쪽을 모두 수용한다.
-  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_advisory:{ghsa_id}`
-  - URL: `config/urls.py`의 `get_github_advisory_url(ghsa_id)` 사용 (문자열 결합 금지)
-  - RateLimit: RateLimiterPort 사용. (권장: 초당 1.5 req REST, 2-3 배치/초 GraphQL)
-  - 참고: [docs/github_구조.md](./github_구조.md)
-  - Raw: `RawProviderPort` 구현. `get_raw("GHSA-...")` → 캐시 또는 네트워크에서 GitHub Advisory 원본 JSON 반환. 다른 식별자/에러는 None 반환.
+  - 역할: GitHub Repo 메타데이터(주로 star 수) 보강
+    - 입력 `Vulnerability.repositories`에 존재하는 GitHub repo에 대해 `stargazers_count`를 조회하여 보강
+  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_repo:{owner}/{name}`
+  - URL: `config/urls.py`의 `get_github_repo_url(owner, name)` 사용
+  - RateLimit: RateLimiterPort 사용 권장
 
 - DiskCache (`infra/cache_diskcache.py`)
   - 역할: `get/set/clear_all` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
@@ -412,7 +409,7 @@ class Container(containers.DeclarativeContainer):
 
 ## 캐시/성능/에러 처리 지침
 
-- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:ghsa:{GHSA_ID}`, `gh_advisory:{GHSA_ID}`.
+- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:{ID}`, `gh_advisory:{GHSA_ID}`, `gh_repo:{owner}/{name}`.
 - TTL: GitHub 30일, OSV 7일(권장). CLI 옵션으로 오버라이드 가능.
 - 동시성: 초기엔 동기 구현 후, 대용량 처리 시 `ThreadPoolExecutor`로 보강(Enricher의 `enrich_many`).
 - 에러 처리: 
