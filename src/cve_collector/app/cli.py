@@ -49,6 +49,8 @@ def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., G
             typer.echo("Not found")
             raise typer.Exit(code=1)
         _print_detail(v)
+
+
 @app.command()
 def clear() -> None:
     with provide_container() as container:
