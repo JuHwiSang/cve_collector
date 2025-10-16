@@ -24,7 +24,7 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add repo slug, ★stars, severity (enriched).")
+@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add repo slug, ★stars, size, severity (enriched).")
 def list_cmd(
     ecosystem: str = typer.Option("npm", help="Ecosystem name (e.g., npm)"),
     limit: int | None = typer.Option(None, help="Limit number of results"),
@@ -38,7 +38,7 @@ def list_cmd(
 
 @app.command(help=(
     "Show details for id (GHSA-... or CVE-...). Prints: GHSA, CVE, Summary, "
-    "Severity, Published, Modified, Repositories (slug★stars + URL), Commits "
+    "Severity, Published, Modified, Repositories (slug★stars size + URL), Commits "
     "(repo@short_hash + URL), PoC links."
 ))
 def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., GHSA-xxxx or CVE-xxxx)")) -> None:
@@ -80,20 +80,37 @@ def ingest(
             typer.echo("Nothing to ingest")
 
 
+def _format_size(size_bytes: int | None) -> str:
+    """Format size in bytes to human-readable string with appropriate unit."""
+    if size_bytes is None:
+        return "-"
+    
+    if size_bytes < 1024:
+        return f"{size_bytes}B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f}KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f}MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f}GB"
+
+
 def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None:
     """Print a table of vulnerabilities.
 
     - Default: columns GHSA, CVE
-    - With detail=True: columns GHSA, CVE, Repository, Stars, Severity (requires enrichment)
+    - With detail=True: columns GHSA, CVE, Repository, Stars, Size, Severity (requires enrichment)
     """
     if detail:
-        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>7} {'Severity'}")
+        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>7} {'Size':>10} {'Severity'}")
         for v in vulns:
             repo = v.repositories[0].slug if v.repositories else "-"
             stars = v.repositories[0].star_count if v.repositories else None
             star_s = f"{stars}" if stars is not None else " -"
+            size_bytes = v.repositories[0].size_bytes if v.repositories else None
+            size_s = _format_size(size_bytes)
             sev = v.severity.name if v.severity else "-"
-            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>7} {sev}")
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>7} {size_s:>10} {sev}")
     else:
         print(f"{'GHSA':22} {'CVE':17}")
         for v in vulns:
@@ -117,7 +134,8 @@ def _print_detail(v: Vulnerability) -> None:
         print("Repositories:")
         for r in v.repositories:
             star_s = f" ★{r.star_count}" if r.star_count is not None else ""
-            print(f"  - {r.slug or '-'}{star_s} ({r.url or '-'})")
+            size_s = f" ({_format_size(r.size_bytes)})" if r.size_bytes is not None else ""
+            print(f"  - {r.slug or '-'}{star_s}{size_s} ({r.url or '-'})")
     if v.commits:
         print("Commits:")
         for c in v.commits:
