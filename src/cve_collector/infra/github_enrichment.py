@@ -40,13 +40,21 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
                     self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
 
                 stars: int | None = None
+                size_bytes: int | None = None
                 if isinstance(data, dict):
                     val = data.get("stargazers_count")
                     if isinstance(val, int):
                         stars = val
                     else:
                         stars = None
-                updated_repos.append(Repository.from_github(repo.owner, repo.name, stars=stars))
+                    
+                    # GitHub API returns size in kilobytes, convert to bytes
+                    size_val = data.get("size")
+                    if isinstance(size_val, int):
+                        size_bytes = size_val * 1024
+                    else:
+                        size_bytes = None
+                updated_repos.append(Repository.from_github(repo.owner, repo.name, stars=stars, size_bytes=size_bytes))
             else:
                 updated_repos.append(repo)
 

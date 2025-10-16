@@ -13,6 +13,7 @@ class Repository:
     owner: Optional[str] = None
     name: Optional[str] = None
     star_count: Optional[int] = None
+    size_bytes: Optional[int] = None
 
     @property
     def slug(self) -> Optional[str]:
@@ -33,8 +34,8 @@ class Repository:
         return None
 
     @staticmethod
-    def from_github(owner: str, name: str, *, stars: Optional[int] = None) -> "Repository":
-        return Repository(platform="github", owner=owner, name=name, star_count=stars)
+    def from_github(owner: str, name: str, *, stars: Optional[int] = None, size_bytes: Optional[int] = None) -> "Repository":
+        return Repository(platform="github", owner=owner, name=name, star_count=stars, size_bytes=size_bytes)
 
 
 @dataclass(frozen=True)

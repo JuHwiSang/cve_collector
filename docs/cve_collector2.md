@@ -108,6 +108,7 @@ class Repository:
     owner: Optional[str] = None
     name: Optional[str] = None
     star_count: Optional[int] = None
+    size_bytes: Optional[int] = None
 
     @property
     def slug(self) -> Optional[str]:
@@ -128,8 +129,8 @@ class Repository:
         return None
 
     @staticmethod
-    def from_github(owner: str, name: str, *, stars: Optional[int] = None) -> "Repository":
-        return Repository(platform="github", owner=owner, name=name, star_count=stars)
+    def from_github(owner: str, name: str, *, stars: Optional[int] = None, size_bytes: Optional[int] = None) -> "Repository":
+        return Repository(platform="github", owner=owner, name=name, star_count=stars, size_bytes=size_bytes)
 
 
 @dataclass(frozen=True)
@@ -336,8 +337,9 @@ class ClearCacheUseCase:
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
 - GitHub Enrichment (`infra/github_enrichment.py`)
-  - 역할: GitHub Repo 메타데이터(주로 star 수) 보강
-    - 입력 `Vulnerability.repositories`에 존재하는 GitHub repo에 대해 `stargazers_count`를 조회하여 보강
+  - 역할: GitHub Repo 메타데이터(주로 star 수, 레포 크기) 보강
+    - 입력 `Vulnerability.repositories`에 존재하는 GitHub repo에 대해 `stargazers_count`와 `size`를 조회하여 보강
+    - GitHub API의 `size` 필드는 KB 단위로 반환되므로 1024를 곱해 bytes로 변환하여 `size_bytes`에 저장
   - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_repo:{owner}/{name}`
   - URL: `config/urls.py`의 `get_github_repo_url(owner, name)` 사용
   - RateLimit: RateLimiterPort 사용 권장
