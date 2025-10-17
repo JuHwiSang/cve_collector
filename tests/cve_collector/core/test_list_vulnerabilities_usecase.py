@@ -153,7 +153,7 @@ def test_filter_with_enrichment(sample_vulnerabilities):
     result = uc.execute(detailed=True, filter_expr='severity == "HIGH"')
 
     assert len(result) == 1
-    assert "[enriched]" in result[0].summary
+    assert "[enriched]" in result[0].summary # type: ignore
 
 
 def test_filter_repo_count(sample_vulnerabilities):
