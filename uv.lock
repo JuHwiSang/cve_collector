@@ -25,6 +25,15 @@ wheels = [
 ]
 
 [[package]]
+name = "asteval"
+version = "1.0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f0/ad92c4bc565918713f9a4b54f06d06ec370e48079fdb50cf432befabee8b/asteval-1.0.6.tar.gz", hash = "sha256:1aa8e7304b2e171a90d64dd269b648cacac4e46fe5de54ac0db24776c0c4a19f", size = 52079, upload-time = "2025-01-19T21:44:03.291Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/ac/19dbba27e891f39feb4170b884da449ee2699ef4ebb88eefeda364bbbbcf/asteval-1.0.6-py3-none-any.whl", hash = "sha256:5e119ed306e39199fd99c881cea0e306b3f3807f050c9be79829fe274c6378dc", size = 22406, upload-time = "2025-01-19T21:44:01.323Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.8.3"
 source = { registry = "https://pypi.org/simple" }
@@ -59,6 +68,7 @@ name = "cve-collector"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "asteval" },
     { name = "cvss" },
     { name = "dependency-injector" },
     { name = "diskcache" },
@@ -77,6 +87,7 @@ tests = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asteval", specifier = ">=1.0.6" },
     { name = "cvss", specifier = ">=3.6" },
     { name = "dependency-injector", specifier = ">=4.48.2" },
     { name = "diskcache", specifier = ">=5.6.3" },
