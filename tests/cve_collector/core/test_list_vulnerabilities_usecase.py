@@ -15,10 +15,18 @@ class FakeIndex(VulnerabilityIndexPort):
     def __init__(self, vulns: list[Vulnerability]) -> None:
         self._vulns = vulns
 
-    def list(self, *, ecosystem: str | None = None, limit: int | None = None):
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None, filter_expr: str | None = None):
+        from cve_collector.shared.filter_utils import filter_vulnerabilities
+
         items = self._vulns
         if ecosystem:
             items = [v for v in items if any(r.ecosystem == ecosystem for r in v.repositories)]
+
+        # Apply filter before limit
+        if filter_expr:
+            items = filter_vulnerabilities(items, filter_expr)
+
+        # Apply limit after filter
         if limit:
             items = items[:limit]
         return items
@@ -183,3 +191,18 @@ def test_no_filter_returns_all(sample_vulnerabilities):
     result = uc.execute()
 
     assert len(result) == 4
+
+
+def test_filter_applied_before_limit(sample_vulnerabilities):
+    """Test that filter is applied before limit to ensure correct result count."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Without filter, limit=2 returns first 2
+    result_no_filter = uc.execute(limit=2)
+    assert len(result_no_filter) == 2
+
+    # With filter, should get 2 HIGH/CRITICAL items even if they're not the first 2
+    result_with_filter = uc.execute(filter_expr='severity in ["HIGH", "CRITICAL"]', limit=2)
+    assert len(result_with_filter) == 2
+    assert all(v.severity in [Severity.HIGH, Severity.CRITICAL] for v in result_with_filter)
