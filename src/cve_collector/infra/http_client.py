@@ -7,7 +7,7 @@ import httpx
 
 class HttpClient:
     def __init__(self, base_headers: Optional[Mapping[str, str]] = None, timeout_seconds: float = 20.0) -> None:
-        self._client = httpx.Client(timeout=timeout_seconds, headers=dict(base_headers or {}))
+        self._client = httpx.Client(timeout=timeout_seconds, headers=dict(base_headers or {}), follow_redirects=True)
 
     def get_json(self, url: str) -> dict:
         resp = self._client.get(url)
