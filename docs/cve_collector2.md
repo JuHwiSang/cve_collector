@@ -66,6 +66,7 @@ src/cve_collector/
   shared/
     logging.py             # 로거 팩토리
     utils.py               # 공용 유틸 (URL 정규화, 키 생성 등)
+    filter_utils.py        # 필터링 유틸리티 (asteval 기반)
 
   config/
     types.py               # 설정 타입 (AppConfig 등)
@@ -260,6 +261,7 @@ class VulnerabilityIndexPort(Protocol):
 
         ecosystem이 None이면 모든 ecosystem의 취약점을 반환한다.
         ecosystem이 지정되면 해당 ecosystem만 필터링하여 반환한다.
+        limit은 필터/enrichment 없는 단순 케이스에서만 사용 (Use Case가 lazy 처리)
         구현 예: OSV GHSA 파일/검색 결과를 파싱해 Vulnerability 생성
         """
 
@@ -341,17 +343,37 @@ class ListVulnerabilitiesUseCase:
         detailed: bool = False,
         filter_expr: str | None = None,
     ) -> Sequence[Vulnerability]:
-        items = self._index.list(ecosystem=ecosystem, limit=limit)
+        # If no filter and no enrichment needed, simple pass-through
+        if not filter_expr and not detailed:
+            return self._index.list(ecosystem=ecosystem, limit=limit)
 
-        # Apply enrichment if detailed
-        if detailed and self._enricher:
-            items = list(self._enricher.enrich_many(items))
+        # Fetch all skeleton items (lightweight)
+        items = self._index.list(ecosystem=ecosystem)
 
-        # Apply filter if provided (asteval-based dynamic filtering)
-        if filter_expr:
-            items = self._filter_vulnerabilities(items, filter_expr)
+        # Lazy process: enrich and filter one by one until we have enough
+        result: list[Vulnerability] = []
+        target_limit = limit or float('inf')
 
-        return items
+        for item in items:
+            # Apply enrichment if detailed
+            if detailed and self._enricher:
+                item = self._enricher.enrich(item)
+
+            # Apply filter if provided
+            if filter_expr:
+                filtered = filter_vulnerabilities([item], filter_expr)
+                if not filtered:
+                    continue
+                item = filtered[0]
+
+            # Add to result
+            result.append(item)
+
+            # Stop if we have enough
+            if len(result) >= target_limit:
+                break
+
+        return result[:int(target_limit)] if limit else result
 ```
 
 2) 단건 상세 출력용 (식별자 문자열 기반, 필요시 보강 적용)
@@ -407,6 +429,8 @@ class ClearCacheUseCase:
   - `list(ecosystem, limit)`: 캐시의 `osv:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환.
     - `ecosystem=None`: 모든 ecosystem의 취약점 반환 (필터링 없음)
     - `ecosystem` 지정: `affected[].package.ecosystem`이 일치하는 항목만 필터링하여 반환
+    - `limit`: 단순 케이스용 (필터/enrich 필요 시 Use Case가 lazy 처리)
+    - 실행 순서: ecosystem 필터 → limit 적용 (선택)
     - 캐시가 비어 있을 때:
       - `ecosystem=None`이면 명확한 에러 메시지 출력 (ingest 필요)
       - `ecosystem` 지정 시 자동으로 ZIP ingest 후 재스캔
@@ -460,9 +484,23 @@ class ClearCacheUseCase:
 
 ### 필터링 기능 (Filter)
 
-- **구현 위치**: Use Case 레이어 (`ListVulnerabilitiesUseCase`)
+- **구현 위치**:
+  - **필터 로직**: `shared/filter_utils.py` - 공통 유틸리티
+  - **실행 계층**: Use Case (`ListVulnerabilitiesUseCase`)
+  - **전략**: Lazy 처리 - 모든 skeleton을 가져와 하나씩 enrich → filter, limit 도달 시 중단
 - **기술**: asteval 라이브러리를 사용한 동적 표현식 평가
-- **실행 순서**: Index 조회 → Enrichment (detailed=True인 경우) → Filter 적용
+- **실행 순서**:
+  1. Index에서 모든 skeleton 조회 (가볍고 빠름)
+  2. 하나씩 순회하며:
+     - Enrichment 적용 (detailed=True인 경우)
+     - Filter 적용 (enriched 데이터 필터링 가능)
+     - 통과하면 결과에 추가
+     - limit 도달 시 중단
+- **장점**:
+  - enriched 필드(stars, size_bytes 등)에 대한 필터링 가능
+  - 필요한 만큼만 enrich하여 성능 최적화 (lazy)
+  - limit 정확히 적용
+  - 심플한 구현
 - **사용 가능한 변수**:
   - `ghsa_id` (str): GHSA 식별자
   - `cve_id` (str | None): CVE 식별자
