@@ -29,10 +29,15 @@ def list_cmd(
     ecosystem: str | None = typer.Option(None, help="Ecosystem name (e.g., npm). If not specified, lists all ecosystems."),
     limit: int = typer.Option(10, help="Limit number of results (default: 10)"),
     detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
+    filter: str | None = typer.Option(None, "--filter", "-f", help="Filter expression (e.g., 'stars > 1000', 'severity == \"HIGH\"')"),
 ) -> None:
     with provide_container() as container:
         uc = container.list_uc()
-        vulns = uc.execute(ecosystem=ecosystem, limit=limit, detailed=detail)
+        try:
+            vulns = uc.execute(ecosystem=ecosystem, limit=limit, detailed=detail, filter_expr=filter)
+        except ValueError as e:
+            typer.echo(f"Filter error: {e}", err=True)
+            raise typer.Exit(code=1)
         _print_list(vulns, detail=detail)
 
 
@@ -84,7 +89,7 @@ def _format_size(size_bytes: int | None) -> str:
     """Format size in bytes to human-readable string with appropriate unit."""
     if size_bytes is None:
         return "-"
-    
+
     if size_bytes < 1024:
         return f"{size_bytes}B"
     elif size_bytes < 1024 * 1024:
