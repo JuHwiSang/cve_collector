@@ -27,7 +27,7 @@ def provide_container() -> Iterator[Container]:
 @app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, ecosystem, repo slug, ★stars, size (enriched).")
 def list_cmd(
     ecosystem: str | None = typer.Option(None, help="Ecosystem name (e.g., npm). If not specified, lists all ecosystems."),
-    limit: int | None = typer.Option(None, help="Limit number of results"),
+    limit: int = typer.Option(10, help="Limit number of results (default: 10)"),
     detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
 ) -> None:
     with provide_container() as container:
