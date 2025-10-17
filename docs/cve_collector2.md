@@ -73,6 +73,71 @@ src/cve_collector/
     urls.py                # 외부 API URL 빌더(get_*_url)
 ```
 
+## OSV 스키마 구조 (infra/schemas.py)
+
+OSV 데이터를 검증하기 위한 pydantic 모델들입니다. 전체 OSV 스키마를 표현하며, 버전 범위, 이벤트, 패키지 정보 등을 포함합니다.
+
+```python
+class OsvSeverity(BaseModel):
+    """취약점 심각도 정보 (예: CVSS)"""
+    type: str
+    score: str | float
+
+class OsvPackage(BaseModel):
+    """영향을 받는 패키지 정보"""
+    ecosystem: str
+    name: str
+    purl: Optional[str] = None
+
+class OsvEvent(BaseModel):
+    """버전 범위의 시작 또는 끝을 정의하는 이벤트"""
+    introduced: Optional[str] = None
+    fixed: Optional[str] = None
+    last_affected: Optional[str] = None
+    limit: Optional[str] = None
+
+class OsvRange(BaseModel):
+    """영향을 받는 버전 범위"""
+    type: str
+    repo: Optional[str] = None
+    events: list[OsvEvent]
+
+class OsvAffected(BaseModel):
+    """취약점의 영향을 받는 패키지 및 버전 정보"""
+    package: OsvPackage
+    ranges: Optional[list[OsvRange]] = None
+    versions: Optional[list[str]] = None
+    ecosystem_specific: Optional[dict[str, Any]] = None
+    database_specific: Optional[dict[str, Any]] = None
+
+class OsvReference(BaseModel):
+    """관련 외부 참조 링크"""
+    type: str | None = None
+    url: str
+
+class OsvVulnerability(BaseModel):
+    """OSV 스키마의 최상위 모델"""
+    schema_version: Optional[str] = Field(None, alias='schema_version')
+    id: str
+    modified: Optional[str] = None  # 테스트 호환성을 위해 optional
+    published: Optional[str] = None
+    withdrawn: Optional[str] = None
+    aliases: Optional[list[str]] = None
+    related: Optional[list[str]] = None
+    summary: Optional[str] = None
+    details: Optional[str] = None
+    severity: Optional[list[OsvSeverity]] = None
+    affected: list[OsvAffected] | None = None
+    references: Optional[list[OsvReference]] = None
+    database_specific: Optional[dict[str, Any]] = None
+```
+
+주요 특징:
+- `modified` 필드는 OSV 표준에서는 필수이나, 테스트 호환성을 위해 optional로 설정
+- `affected` 리스트를 통해 영향받는 패키지와 버전 범위를 표현
+- `ranges`와 `events`를 통해 복잡한 버전 범위 표현 가능 (introduced/fixed/last_affected)
+- `ecosystem` 필터링은 `affected[].package.ecosystem` 기반으로 수행
+
 ## 도메인 모델 (불변, 확장 가능)
 
 표준 라이브러리 중심으로 시작하고, 필요시 pydantic으로 확장한다. 기본은 dataclass(frozen=True)로 불변을 보장하고, 업데이트는 `dataclasses.replace()`를 사용한다.
@@ -190,8 +255,11 @@ from cve_collector.core.domain.models import Vulnerability
 
 
 class VulnerabilityIndexPort(Protocol):
-    def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None) -> Sequence[Vulnerability]:
         """GHSA 중심의 스켈레톤 목록을 반환. (요약/aliases 등 최소 정보)
+
+        ecosystem이 None이면 모든 ecosystem의 취약점을 반환한다.
+        ecosystem이 지정되면 해당 ecosystem만 필터링하여 반환한다.
         구현 예: OSV GHSA 파일/검색 결과를 파싱해 Vulnerability 생성
         """
 
@@ -199,8 +267,6 @@ class VulnerabilityIndexPort(Protocol):
         """식별자 문자열로 단건 조회. 예: "GHSA-...", "CVE-...".
         구현체는 접두사 등 규칙으로 해석한다. 없으면 None.
         """
-
-    def get_by_ghsa(self, ghsa_id: str) -> Vulnerability | None: ...  # 호환용 편의 메서드
 
 
 class VulnerabilityEnrichmentPort(Protocol):
@@ -267,7 +333,7 @@ class ListVulnerabilitiesUseCase:
         self._index = index
         self._enricher = enricher
 
-    def execute(self, *, ecosystem: str, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
+    def execute(self, *, ecosystem: str | None = None, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
         items = self._index.list(ecosystem=ecosystem, limit=limit)
         if not detailed or not self._enricher:
             return items
@@ -324,9 +390,13 @@ class ClearCacheUseCase:
   - 역할: OSV Index + Enrichment + Dump (세 포트 구현)
   - 입력: OSV ecosystem ZIP(`.../{ecosystem}/all.zip`) 다운로드 → GHSA 파일 필터 → 각 항목을 `osv:{id}`로 개별 저장
   - 캐시 키: 각 항목 `osv:{ID}` (리스트 키 없음)
-  - `list(ecosystem, limit)`: 캐시의 `osv:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환. 캐시가 비어 있으면 자동으로 ZIP ingest 후 재스캔.
+  - `list(ecosystem, limit)`: 캐시의 `osv:` 프리픽스 키들을 스캔(`iter_keys`) → 각 항목을 모델로 로드(`get_model(OsvVulnerability)`) → `Vulnerability` 변환 후 반환.
+    - `ecosystem=None`: 모든 ecosystem의 취약점 반환 (필터링 없음)
+    - `ecosystem` 지정: `affected[].package.ecosystem`이 일치하는 항목만 필터링하여 반환
+    - 캐시가 비어 있을 때:
+      - `ecosystem=None`이면 명확한 에러 메시지 출력 (ingest 필요)
+      - `ecosystem` 지정 시 자동으로 ZIP ingest 후 재스캔
   - `get(selector)`: 문자열 식별자(`GHSA-...`, `CVE-...`)에 대해 `dump(selector)`로 원본을 확보/캐싱한 뒤 모델 검증 → 도메인 변환하여 반환.
-  - `get_by_ghsa(ghsa_id)`: 호환용 편의 메서드로 `get(ghsa_id)` 호출
   - `dump(selector)`: OSV API에서 식별자 기반으로 JSON을 가져와 `osv:{id}`로 캐시 후 그대로 반환.
   - `enrich(v)`: OSV 정보로 다음 필드를 보강한다
     - `cve_id`: `aliases`에서 CVE 추출
@@ -360,6 +430,7 @@ class ClearCacheUseCase:
 
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
+- `cve_collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요)
 - `cve_collector list --ecosystem npm --limit 50`
 - `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 에코시스템, 레포, 스타, 크기 포함
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
