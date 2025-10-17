@@ -15,18 +15,12 @@ class FakeIndex(VulnerabilityIndexPort):
     def __init__(self, vulns: list[Vulnerability]) -> None:
         self._vulns = vulns
 
-    def list(self, *, ecosystem: str | None = None, limit: int | None = None, filter_expr: str | None = None):
-        from cve_collector.shared.filter_utils import filter_vulnerabilities
-
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None):
         items = self._vulns
         if ecosystem:
             items = [v for v in items if any(r.ecosystem == ecosystem for r in v.repositories)]
 
-        # Apply filter before limit
-        if filter_expr:
-            items = filter_vulnerabilities(items, filter_expr)
-
-        # Apply limit after filter
+        # Apply limit if specified
         if limit:
             items = items[:limit]
         return items
@@ -161,7 +155,7 @@ def test_filter_with_enrichment(sample_vulnerabilities):
     result = uc.execute(detailed=True, filter_expr='severity == "HIGH"')
 
     assert len(result) == 1
-    assert "[enriched]" in result[0].summary # type: ignore
+    assert result[0].summary and "[enriched]" in result[0].summary # type: ignore
 
 
 def test_filter_repo_count(sample_vulnerabilities):
@@ -206,3 +200,22 @@ def test_filter_applied_before_limit(sample_vulnerabilities):
     result_with_filter = uc.execute(filter_expr='severity in ["HIGH", "CRITICAL"]', limit=2)
     assert len(result_with_filter) == 2
     assert all(v.severity in [Severity.HIGH, Severity.CRITICAL] for v in result_with_filter)
+
+
+def test_lazy_enrichment_with_filter_and_limit(sample_vulnerabilities):
+    """Test that lazy enrichment and filtering work correctly with limit."""
+    # Create a larger dataset
+    large_dataset = sample_vulnerabilities * 30  # 120 items
+
+    index = FakeIndex(large_dataset)
+    enricher = FakeEnricher()
+    uc = ListVulnerabilitiesUseCase(index, enricher)
+
+    # Filter for HIGH severity with enrichment and limit
+    result = uc.execute(detailed=True, filter_expr='severity == "HIGH"', limit=5)
+
+    # Should get exactly 5 HIGH severity items
+    assert len(result) == 5
+    assert all(v.severity == Severity.HIGH for v in result)
+    # All should be enriched
+    assert all(v.summary and "[enriched]" in v.summary for v in result)
