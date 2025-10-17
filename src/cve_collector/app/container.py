@@ -10,7 +10,7 @@ from ..core.usecases.raw_dump import RawDumpUseCase
 from ..infra.cache_diskcache import DiskCacheAdapter
 from ..infra.github_enrichment import GitHubRepoEnricher
 from ..infra.osv_adapter import OSVAdapter
-from ..infra.rate_limiter import SimpleRateLimiter
+from ..infra.rate_limiter import SlidingWindowRateLimiter
 from ..infra.http_client import HttpClient
 from ..config.loader import load_config
 from ..config.types import AppConfig
@@ -42,10 +42,16 @@ class Container(containers.DeclarativeContainer):
 
 	cache = providers.Resource(cache_resource, app_config)
 
-	rate_limiter = providers.Factory(SimpleRateLimiter, rps=1.5)
+	# GitHub API limit: 5000 requests/hour for authenticated users
+	# Using conservative 4500/hour to leave safety margin
+	rate_limiter = providers.Factory(SlidingWindowRateLimiter, max_requests=4500, window_seconds=3600.0)
 
 	http_client = providers.Factory(HttpClient)
-	github_http_client = providers.Factory(HttpClient, base_headers=providers.Callable(github_headers, app_config))
+	github_http_client = providers.Factory(
+		HttpClient,
+		base_headers=providers.Callable(github_headers, app_config),
+		rate_limiter=rate_limiter
+	)
 
 	index = providers.Factory(OSVAdapter, cache=cache, http_client=http_client)
 
