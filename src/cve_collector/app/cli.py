@@ -24,7 +24,7 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add repo slug, ★stars, size, severity (enriched).")
+@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, repo slug, ★stars, size (enriched).")
 def list_cmd(
     ecosystem: str = typer.Option("npm", help="Ecosystem name (e.g., npm)"),
     limit: int | None = typer.Option(None, help="Limit number of results"),
@@ -99,18 +99,18 @@ def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None
     """Print a table of vulnerabilities.
 
     - Default: columns GHSA, CVE
-    - With detail=True: columns GHSA, CVE, Repository, Stars, Size, Severity (requires enrichment)
+    - With detail=True: columns GHSA, CVE, Severity, Repository, Stars, Size (requires enrichment)
     """
     if detail:
-        print(f"{'GHSA':22} {'CVE':17} {'Repository':35} {'Stars':>7} {'Size':>10} {'Severity'}")
+        print(f"{'GHSA':22} {'CVE':17} {'Severity':10} {'Repository':35} {'Stars':>7} {'Size':>10}")
         for v in vulns:
+            sev = v.severity.name if v.severity else "-"
             repo = v.repositories[0].slug if v.repositories else "-"
             stars = v.repositories[0].star_count if v.repositories else None
             star_s = f"{stars}" if stars is not None else " -"
             size_bytes = v.repositories[0].size_bytes if v.repositories else None
             size_s = _format_size(size_bytes)
-            sev = v.severity.name if v.severity else "-"
-            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {repo:35} {star_s:>7} {size_s:>10} {sev}")
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {sev:10} {repo:35} {star_s:>7} {size_s:>10}")
     else:
         print(f"{'GHSA':22} {'CVE':17}")
         for v in vulns:

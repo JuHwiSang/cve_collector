@@ -359,7 +359,7 @@ class ClearCacheUseCase:
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
 - `cve_collector list --ecosystem npm --limit 50`
-- `cve_collector list -d` (또는 `--detail`) # 상세 모드: 레포, 스타, 크기, 심각도 포함
+- `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 레포, 스타, 크기 포함
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
@@ -450,7 +450,8 @@ class Container(containers.DeclarativeContainer):
 
 ## 출력 규칙 (app 레벨)
 
-- 리스트: 기본 GHSA, CVE만 출력. `--detail` 사용 시 주요 레포(`owner/name★stars size`), 심각도 컬럼을 추가로 출력한다.
+- 리스트: 기본 GHSA, CVE만 출력. `--detail` 사용 시 심각도, 주요 레포(`owner/name★stars size`) 컬럼을 추가로 출력한다.
+  - 컬럼 순서: GHSA, CVE, Severity, Repository, Stars, Size
   - 크기는 적절한 단위(B, KB, MB, GB)로 자동 변환하여 표시
 - 단건: 요약, 심각도, 발행/수정일, 레포 목록(slug, stars, size), 커밋 목록(짧은 해시+URL), PoC 링크
 - 컬러링/폭 자르기 등 프리젠테이션은 app에서만 처리하고, core/infra는 관여하지 않는다.
