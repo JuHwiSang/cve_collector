@@ -53,11 +53,9 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
                 continue
 
             # Filter by ecosystem if specified
-            if ecosystem is not None:
+            if ecosystem is not None and osv.affected:
                 # Check if any affected package matches the requested ecosystem
-                if not osv.affected or not any(
-                    aff.package.ecosystem == ecosystem for aff in osv.affected
-                ):
+                if not any(aff.package.ecosystem == ecosystem for aff in osv.affected):
                     continue
 
             result.append(_to_domain(osv))

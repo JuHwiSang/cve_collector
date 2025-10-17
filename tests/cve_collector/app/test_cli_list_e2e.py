@@ -8,7 +8,9 @@ def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def test_cli_list_runs_default():
-    cp = run_cli(["list"])  # default ecosystem/limit
+    # Since ecosystem is now optional (defaults to all), but requires cache to be populated,
+    # we test with an explicit ecosystem to trigger auto-ingest
+    cp = run_cli(["list", "--ecosystem", "npm"])
     assert cp.returncode == 0
 
 

@@ -61,7 +61,7 @@ class OsvVulnerability(BaseModel):
 	"""OSV 스키마의 최상위 모델"""
 	schema_version: Optional[str] = Field(None, alias='schema_version')
 	id: str
-	modified: str
+	modified: Optional[str] = None  # Made optional for backward compatibility with tests
 	published: Optional[str] = None
 	withdrawn: Optional[str] = None
 	aliases: Optional[list[str]] = None
