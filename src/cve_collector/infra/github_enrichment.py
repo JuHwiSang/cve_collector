@@ -54,7 +54,8 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
                         size_bytes = size_val * 1024
                     else:
                         size_bytes = None
-                updated_repos.append(Repository.from_github(repo.owner, repo.name, stars=stars, size_bytes=size_bytes))
+                # Preserve existing ecosystem from input repo
+                updated_repos.append(Repository.from_github(repo.owner, repo.name, stars=stars, size_bytes=size_bytes, ecosystem=repo.ecosystem))
             else:
                 updated_repos.append(repo)
 

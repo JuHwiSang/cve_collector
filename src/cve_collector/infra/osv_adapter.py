@@ -36,17 +36,30 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
         self._cache = cache
         self._http = http_client
 
-    def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None) -> Sequence[Vulnerability]:
         result: list[Vulnerability] = []
         keys = list(self._cache.iter_keys("osv:"))
         if not keys:
-            # No cached entries yet; ingest for the requested ecosystem
+            # No cached entries yet
+            if ecosystem is None:
+                raise ValueError("Cannot list all ecosystems: no cached data. Please run 'ingest' first for at least one ecosystem.")
+            # Ingest for the requested ecosystem
             self.ingest_zip(ecosystem)
             keys = list(self._cache.iter_keys("osv:"))
+
         for key in keys:
             osv = self._cache.get_model(key, OsvVulnerability)  # raises if invalid JSON
             if osv is None:
                 continue
+
+            # Filter by ecosystem if specified
+            if ecosystem is not None:
+                # Check if any affected package matches the requested ecosystem
+                if not osv.affected or not any(
+                    aff.package.ecosystem == ecosystem for aff in osv.affected
+                ):
+                    continue
+
             result.append(_to_domain(osv))
             if limit is not None and len(result) >= limit:
                 break
@@ -103,7 +116,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
         - severity: derive from OSV severity list (map CVSS score or level to enum)
         - summary/description: fallback from OSV
         - published_at/modified_at: parsed from ISO timestamps
-        - repositories/commits: parsed from references (GitHub repo/commit URLs)
+        - repositories/commits: parsed from references (GitHub repo/commit URLs), with ecosystem from affected[].package.ecosystem
         - poc_urls: references heuristically matching PoC keywords
         """
         key = f"osv:{v.ghsa_id}"
@@ -114,6 +127,11 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
                 raise ValueError(f"OSV not found for {v.ghsa_id}")
             osv = OsvVulnerability.model_validate(raw)
             self._cache.set_model(key, osv)
+        
+        # Extract ecosystem from affected[0].package.ecosystem (most common case)
+        ecosystem: str | None = None
+        if osv.affected and len(osv.affected) > 0:
+            ecosystem = osv.affected[0].package.ecosystem
         
         # CVE
         cve_id = v.cve_id
@@ -179,7 +197,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
                         key_slug = f"{owner}/{name}"
                         repo = repo_map.get(key_slug)
                         if repo is None:
-                            repo = Repository.from_github(owner, name)
+                            repo = Repository.from_github(owner, name, ecosystem=ecosystem)
                             repo_map[key_slug] = repo
                         commits.append(Commit(repo=repo, hash=commit_hash))
                         continue
@@ -190,7 +208,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
                         owner, name = parsed_repo
                         key_slug = f"{owner}/{name}"
                         if key_slug not in repo_map:
-                            repo_map[key_slug] = Repository.from_github(owner, name)
+                            repo_map[key_slug] = Repository.from_github(owner, name, ecosystem=ecosystem)
                         continue
                 # PoC URLs are typically WEB/OTHER; ignore ADVISORY/PACKAGE for PoC
                 if rtype in ("WEB", "OTHER") and is_poc_url(url):

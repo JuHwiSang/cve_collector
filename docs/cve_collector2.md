@@ -109,6 +109,7 @@ class Repository:
     name: Optional[str] = None
     star_count: Optional[int] = None
     size_bytes: Optional[int] = None
+    ecosystem: Optional[str] = None  # e.g., "npm", "pypi", "go"
 
     @property
     def slug(self) -> Optional[str]:
@@ -129,8 +130,8 @@ class Repository:
         return None
 
     @staticmethod
-    def from_github(owner: str, name: str, *, stars: Optional[int] = None, size_bytes: Optional[int] = None) -> "Repository":
-        return Repository(platform="github", owner=owner, name=name, star_count=stars, size_bytes=size_bytes)
+    def from_github(owner: str, name: str, *, stars: Optional[int] = None, size_bytes: Optional[int] = None, ecosystem: Optional[str] = None) -> "Repository":
+        return Repository(platform="github", owner=owner, name=name, star_count=stars, size_bytes=size_bytes, ecosystem=ecosystem)
 
 
 @dataclass(frozen=True)
@@ -329,10 +330,11 @@ class ClearCacheUseCase:
   - `dump(selector)`: OSV API에서 식별자 기반으로 JSON을 가져와 `osv:{id}`로 캐시 후 그대로 반환.
   - `enrich(v)`: OSV 정보로 다음 필드를 보강한다
     - `cve_id`: `aliases`에서 CVE 추출
+    - `ecosystem`: `affected[0].package.ecosystem`에서 추출 (npm, pypi, go 등)
     - `severity`: OSV `severity`가 문자열 또는 목록일 수 있으므로, 문자열은 `Severity.from_str`로, 목록은 최신 타입의 `score`를 `Severity.from_str`로 매핑
     - `summary`/`description`/`details`: OSV `summary`/`details`로 보완하고 `details`도 보존
     - `published_at`/`modified_at`: ISO 타임스탬프 파싱
-    - `repositories`/`commits`/`poc_urls`: OSV `references`의 타입/URL을 활용해 추출 (예: FIX/WEB/OTHER → 커밋 우선, PACKAGE/WEB → 저장소, WEB/OTHER → PoC 후보 URL)
+    - `repositories`/`commits`/`poc_urls`: OSV `references`의 타입/URL을 활용해 추출하며, 추출된 Repository에 ecosystem 정보를 포함 (예: FIX/WEB/OTHER → 커밋 우선, PACKAGE/WEB → 저장소, WEB/OTHER → PoC 후보 URL)
   - 출력: `Vulnerability(ghsa_id=..., cve_id=..., summary, details, severity, ...)`
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
@@ -359,7 +361,7 @@ class ClearCacheUseCase:
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
 - `cve_collector list --ecosystem npm --limit 50`
-- `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 레포, 스타, 크기 포함
+- `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 에코시스템, 레포, 스타, 크기 포함
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
@@ -450,10 +452,11 @@ class Container(containers.DeclarativeContainer):
 
 ## 출력 규칙 (app 레벨)
 
-- 리스트: 기본 GHSA, CVE만 출력. `--detail` 사용 시 심각도, 주요 레포(`owner/name★stars size`) 컬럼을 추가로 출력한다.
-  - 컬럼 순서: GHSA, CVE, Severity, Repository, Stars, Size
+- 리스트: 기본 GHSA, CVE만 출력. `--detail` 사용 시 심각도, 에코시스템, 주요 레포(`owner/name★stars size`) 컬럼을 추가로 출력한다.
+  - 컬럼 순서: GHSA, CVE, Severity, Eco, Repository, Stars, Size
+  - 에코시스템은 8자 폭으로 표시 (npm, pypi, go 등)
   - 크기는 적절한 단위(B, KB, MB, GB)로 자동 변환하여 표시
-- 단건: 요약, 심각도, 발행/수정일, 레포 목록(slug, stars, size), 커밋 목록(짧은 해시+URL), PoC 링크
+- 단건: 요약, 심각도, 발행/수정일, 레포 목록([ecosystem] slug, stars, size), 커밋 목록(짧은 해시+URL), PoC 링크
 - 컬러링/폭 자르기 등 프리젠테이션은 app에서만 처리하고, core/infra는 관여하지 않는다.
 
 ## 마이그레이션 메모

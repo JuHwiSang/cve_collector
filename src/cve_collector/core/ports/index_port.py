@@ -6,9 +6,10 @@ from ..domain.models import Vulnerability
 
 
 class VulnerabilityIndexPort(Protocol):
-    def list(self, *, ecosystem: str, limit: int | None = None) -> Sequence[Vulnerability]:
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None) -> Sequence[Vulnerability]:
         """Return a GHSA-centric skeleton list (minimal fields).
 
+        If ecosystem is None, returns vulnerabilities from all ecosystems.
         Example implementation: parse OSV GHSA entries to construct Vulnerability.
         """
         ...

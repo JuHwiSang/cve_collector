@@ -24,9 +24,9 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, repo slug, ★stars, size (enriched).")
+@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, ecosystem, repo slug, ★stars, size (enriched).")
 def list_cmd(
-    ecosystem: str = typer.Option("npm", help="Ecosystem name (e.g., npm)"),
+    ecosystem: str | None = typer.Option(None, help="Ecosystem name (e.g., npm). If not specified, lists all ecosystems."),
     limit: int | None = typer.Option(None, help="Limit number of results"),
     detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
 ) -> None:
@@ -38,7 +38,7 @@ def list_cmd(
 
 @app.command(help=(
     "Show details for id (GHSA-... or CVE-...). Prints: GHSA, CVE, Summary, "
-    "Severity, Published, Modified, Repositories (slug★stars size + URL), Commits "
+    "Severity, Published, Modified, Repositories ([ecosystem] slug★stars size + URL), Commits "
     "(repo@short_hash + URL), PoC links."
 ))
 def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., GHSA-xxxx or CVE-xxxx)")) -> None:
@@ -99,18 +99,19 @@ def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None
     """Print a table of vulnerabilities.
 
     - Default: columns GHSA, CVE
-    - With detail=True: columns GHSA, CVE, Severity, Repository, Stars, Size (requires enrichment)
+    - With detail=True: columns GHSA, CVE, Severity, Ecosystem, Repository, Stars, Size (requires enrichment)
     """
     if detail:
-        print(f"{'GHSA':22} {'CVE':17} {'Severity':10} {'Repository':35} {'Stars':>7} {'Size':>10}")
+        print(f"{'GHSA':22} {'CVE':17} {'Severity':10} {'Eco':8} {'Repository':35} {'Stars':>7} {'Size':>10}")
         for v in vulns:
             sev = v.severity.name if v.severity else "-"
             repo = v.repositories[0].slug if v.repositories else "-"
+            eco = v.repositories[0].ecosystem if v.repositories and v.repositories[0].ecosystem else "-"
             stars = v.repositories[0].star_count if v.repositories else None
             star_s = f"{stars}" if stars is not None else " -"
             size_bytes = v.repositories[0].size_bytes if v.repositories else None
             size_s = _format_size(size_bytes)
-            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {sev:10} {repo:35} {star_s:>7} {size_s:>10}")
+            print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {sev:10} {eco:8} {repo:35} {star_s:>7} {size_s:>10}")
     else:
         print(f"{'GHSA':22} {'CVE':17}")
         for v in vulns:
@@ -133,9 +134,10 @@ def _print_detail(v: Vulnerability) -> None:
     if v.repositories:
         print("Repositories:")
         for r in v.repositories:
+            eco_s = f"[{r.ecosystem}] " if r.ecosystem else ""
             star_s = f" ★{r.star_count}" if r.star_count is not None else ""
             size_s = f" ({_format_size(r.size_bytes)})" if r.size_bytes is not None else ""
-            print(f"  - {r.slug or '-'}{star_s}{size_s} ({r.url or '-'})")
+            print(f"  - {eco_s}{r.slug or '-'}{star_s}{size_s} ({r.url or '-'})")
     if v.commits:
         print("Commits:")
         for c in v.commits:

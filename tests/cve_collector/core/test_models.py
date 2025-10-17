@@ -5,12 +5,13 @@ from cve_collector.core.domain.enums import Severity
 
 
 def test_repository_urls():
-    repo = Repository.from_github("owner", "repo", stars=42, size_bytes=1024000)
+    repo = Repository.from_github("owner", "repo", stars=42, size_bytes=1024000, ecosystem="npm")
     assert repo.slug == "owner/repo"
     assert repo.url == "https://github.com/owner/repo"
     assert repo.commit_url("abcd1234") == "https://github.com/owner/repo/commit/abcd1234"
     assert repo.star_count == 42
     assert repo.size_bytes == 1024000
+    assert repo.ecosystem == "npm"
 
 
 def test_commit_url_and_short_hash():

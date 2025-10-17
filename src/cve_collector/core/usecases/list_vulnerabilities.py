@@ -12,7 +12,7 @@ class ListVulnerabilitiesUseCase:
         self._index = index
         self._enricher = enricher
 
-    def execute(self, *, ecosystem: str, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
+    def execute(self, *, ecosystem: str | None = None, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
         items = self._index.list(ecosystem=ecosystem, limit=limit)
         if not detailed or not self._enricher:
             return items
