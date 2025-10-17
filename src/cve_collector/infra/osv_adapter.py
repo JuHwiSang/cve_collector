@@ -12,6 +12,7 @@ from ..core.ports.cache_port import CachePort
 from ..core.ports.index_port import VulnerabilityIndexPort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from ..core.ports.dump_port import DumpProviderPort
+from ..shared.filter_utils import filter_vulnerabilities
 from .http_client import HttpClient
 from .schemas import OsvVulnerability
 from ..config.urls import get_osv_zip_url, get_osv_vuln_url
@@ -36,7 +37,7 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
         self._cache = cache
         self._http = http_client
 
-    def list(self, *, ecosystem: str | None = None, limit: int | None = None) -> Sequence[Vulnerability]:
+    def list(self, *, ecosystem: str | None = None, limit: int | None = None, filter_expr: str | None = None) -> Sequence[Vulnerability]:
         result: list[Vulnerability] = []
         keys = list(self._cache.iter_keys("osv:"))
         if not keys:
@@ -59,8 +60,15 @@ class OSVAdapter(VulnerabilityIndexPort, VulnerabilityEnrichmentPort, DumpProvid
                     continue
 
             result.append(_to_domain(osv))
-            if limit is not None and len(result) >= limit:
-                break
+
+        # Apply filter before limit
+        if filter_expr:
+            result = filter_vulnerabilities(result, filter_expr)
+
+        # Apply limit after filter
+        if limit is not None:
+            result = result[:limit]
+
         return result
 
     def get(self, id: str) -> Vulnerability | None:
