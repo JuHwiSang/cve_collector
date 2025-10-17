@@ -333,11 +333,25 @@ class ListVulnerabilitiesUseCase:
         self._index = index
         self._enricher = enricher
 
-    def execute(self, *, ecosystem: str | None = None, limit: int | None = None, detailed: bool = False) -> Sequence[Vulnerability]:
+    def execute(
+        self,
+        *,
+        ecosystem: str | None = None,
+        limit: int | None = None,
+        detailed: bool = False,
+        filter_expr: str | None = None,
+    ) -> Sequence[Vulnerability]:
         items = self._index.list(ecosystem=ecosystem, limit=limit)
-        if not detailed or not self._enricher:
-            return items
-        return list(self._enricher.enrich_many(items))
+
+        # Apply enrichment if detailed
+        if detailed and self._enricher:
+            items = list(self._enricher.enrich_many(items))
+
+        # Apply filter if provided (asteval-based dynamic filtering)
+        if filter_expr:
+            items = self._filter_vulnerabilities(items, filter_expr)
+
+        return items
 ```
 
 2) 단건 상세 출력용 (식별자 문자열 기반, 필요시 보강 적용)
@@ -430,9 +444,11 @@ class ClearCacheUseCase:
 
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
 - 명령:
-- `cve_collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요)
+- `cve_collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요). 기본 limit=10
 - `cve_collector list --ecosystem npm --limit 50`
 - `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 에코시스템, 레포, 스타, 크기 포함
+- `cve_collector list --filter 'stars > 1000'` # asteval 기반 동적 필터링
+- `cve_collector list -f 'severity == "HIGH" and has_cve'` # 복합 조건 필터
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
@@ -441,6 +457,47 @@ class ClearCacheUseCase:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
 - 에러 처리: 비정상 상황은 `typer.Exit(code=1)`로 명시 종료. 조용한 fallback 금지.
 - 덕타이핑 금지: `Any`, `cast`, `getattr`, `type: ignore` 금지. 출력 함수 시그니처는 구체 타입(`Sequence[Vulnerability]`, `Vulnerability`).
+
+### 필터링 기능 (Filter)
+
+- **구현 위치**: Use Case 레이어 (`ListVulnerabilitiesUseCase`)
+- **기술**: asteval 라이브러리를 사용한 동적 표현식 평가
+- **실행 순서**: Index 조회 → Enrichment (detailed=True인 경우) → Filter 적용
+- **사용 가능한 변수**:
+  - `ghsa_id` (str): GHSA 식별자
+  - `cve_id` (str | None): CVE 식별자
+  - `has_cve` (bool): CVE ID 존재 여부
+  - `severity` (str | None): 심각도 레벨 (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN)
+  - `summary`, `description`, `details` (str | None): 텍스트 필드
+  - `published_at`, `modified_at` (datetime | None): 타임스탬프
+  - `ecosystem` (str | None): 첫 번째 저장소의 생태계
+  - `repo_slug` (str | None): 첫 번째 저장소의 슬러그 (owner/name)
+  - `stars` (int | None): 첫 번째 저장소의 스타 수
+  - `size_bytes` (int | None): 첫 번째 저장소의 크기 (bytes)
+  - `repo_count`, `commit_count`, `poc_count` (int): 개수 필드
+
+- **표현식 예시**:
+  ```bash
+  # 심각도 필터
+  cve_collector list -f 'severity == "HIGH"'
+
+  # 스타 수 기반 필터
+  cve_collector list -f 'stars > 1000'
+
+  # 복합 조건
+  cve_collector list -f 'has_cve and stars > 500'
+
+  # in 연산자
+  cve_collector list -f 'severity in ["CRITICAL", "HIGH"]'
+
+  # 날짜 비교
+  cve_collector list -f 'modified_at > published_at'
+
+  # PoC 존재 여부
+  cve_collector list -f 'poc_count > 0'
+  ```
+
+- **에러 처리**: 잘못된 표현식은 `ValueError`를 발생시키며, CLI에서 `typer.Exit(code=1)`로 처리
 
 ## 라이브러리 API (api.py)
 

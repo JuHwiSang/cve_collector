@@ -24,12 +24,21 @@ def provide_container() -> Iterator[Container]:
         container.shutdown_resources()
 
 
-@app.command("list", help="List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, ecosystem, repo slug, ★stars, size (enriched).")
+@app.command("list", help=(
+    "List vulnerabilities. Default columns: GHSA, CVE. With -d/--detail: add severity, ecosystem, repo slug, ★stars, size (enriched).\n\n"
+    "Filter variables: ghsa_id, cve_id, has_cve, severity, summary, description, details, "
+    "published_at, modified_at, ecosystem, repo_slug, stars, size_bytes, repo_count, commit_count, poc_count"
+))
 def list_cmd(
     ecosystem: str | None = typer.Option(None, help="Ecosystem name (e.g., npm). If not specified, lists all ecosystems."),
     limit: int = typer.Option(10, help="Limit number of results (default: 10)"),
     detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
-    filter: str | None = typer.Option(None, "--filter", "-f", help="Filter expression (e.g., 'stars > 1000', 'severity == \"HIGH\"')"),
+    filter: str | None = typer.Option(
+        None,
+        "--filter",
+        "-f",
+        help='Filter expression using Python syntax. Examples: \'stars > 1000\', \'severity == "HIGH"\', \'has_cve and stars > 500\''
+    ),
 ) -> None:
     with provide_container() as container:
         uc = container.list_uc()
