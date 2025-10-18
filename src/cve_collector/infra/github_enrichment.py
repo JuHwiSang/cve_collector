@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
+
 import httpx
 
+from ..config.types import AppConfig
+from ..config.urls import get_github_repo_url
 from ..core.domain.models import Repository, Vulnerability
 from ..core.ports.cache_port import CachePort
-from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from ..core.ports.dump_port import DumpProviderPort
+from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
 from .http_client import HttpClient
-from ..config.urls import get_github_advisory_url, get_github_repo_url
-from ..config.types import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -40,55 +41,13 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
         updated_repos: list[Repository] = []
         for repo in v.repositories:
             if repo.platform == "github" and repo.owner and repo.name:
-                key = f"gh_repo:{repo.owner}/{repo.name}"
-                data = self._cache.get_json(key)
-
-                # Check for negative cache marker (previous errors)
-                if isinstance(data, dict) and data.get(_ERROR_MARKER_PREFIX):
-                    # Skip enrichment for repos that previously failed
-                    logger.warning(
-                        "Skipping GitHub repo enrichment due to cached error: %s/%s (status: %s)",
-                        repo.owner, repo.name, data.get("status_code", "unknown")
-                    )
-                    updated_repos.append(repo)
-                    continue
+                # Reuse dump() method to get repo data
+                data = self.dump(f"{repo.owner}/{repo.name}")
 
                 if data is None:
-                    url = get_github_repo_url(repo.owner, repo.name)
-                    try:
-                        data = self._http.get_json(url)
-                        # Cache successful response with normal TTL
-                        ttl_seconds = int(self._cfg.github_cache_ttl_days) * 24 * 3600
-                        self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
-                    except httpx.HTTPStatusError as e:
-                        # Cache 404 and other client errors to avoid repeated requests
-                        if 400 <= e.response.status_code < 500:
-                            logger.warning(
-                                "GitHub API error for repo %s/%s: HTTP %d. Caching error marker.",
-                                repo.owner, repo.name, e.response.status_code
-                            )
-                            error_marker = {
-                                _ERROR_MARKER_PREFIX: True,
-                                "status_code": e.response.status_code,
-                                "url": str(e.request.url)
-                            }
-                            self._cache.set_json(key, error_marker, ttl_seconds=_ERROR_TTL_SECONDS)
-                        else:
-                            logger.warning(
-                                "GitHub API server error for repo %s/%s: HTTP %d. Skipping without caching.",
-                                repo.owner, repo.name, e.response.status_code
-                            )
-                        # Skip this repo and continue with others
-                        updated_repos.append(repo)
-                        continue
-                    except Exception as e:
-                        # For other errors (network, timeout), skip without caching
-                        logger.warning(
-                            "Failed to fetch GitHub repo %s/%s: %s. Skipping without caching.",
-                            repo.owner, repo.name, type(e).__name__
-                        )
-                        updated_repos.append(repo)
-                        continue
+                    # dump() already handles errors and caching, just skip
+                    updated_repos.append(repo)
+                    continue
 
                 stars: int | None = None
                 size_bytes: int | None = None
@@ -117,23 +76,30 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
     # enrich_many provided by VulnerabilityEnrichmentPort default implementation
 
     def dump(self, id: str) -> dict | None:
-        """Return raw GitHub advisory JSON for a GHSA id, or None if unsupported or missing."""
-        if not id.upper().startswith("GHSA-"):
+        """Return raw GitHub repo JSON for owner/name format, or None if unsupported or missing."""
+        # Expected format: "owner/name"
+        if "/" not in id:
             return None
-        key = f"gh_advisory:{id}"
+
+        parts = id.split("/", 1)
+        if len(parts) != 2:
+            return None
+
+        owner, name = parts
+        key = f"gh_repo:{owner}/{name}"
         data = self._cache.get_json(key)
 
         # Check for negative cache marker (previous errors)
         if isinstance(data, dict):
             if data.get(_ERROR_MARKER_PREFIX):
                 logger.warning(
-                    "Skipping GitHub advisory dump due to cached error: %s (status: %s)",
-                    id, data.get("status_code", "unknown")
+                    "Skipping GitHub repo dump due to cached error: %s/%s (status: %s)",
+                    owner, name, data.get("status_code", "unknown")
                 )
                 return None
             return data
 
-        url = get_github_advisory_url(id)
+        url = get_github_repo_url(owner, name)
         try:
             data = self._http.get_json(url)
             ttl_seconds = int(self._cfg.github_cache_ttl_days) * 24 * 3600
@@ -143,8 +109,8 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
             # Cache 404 and other client errors
             if 400 <= e.response.status_code < 500:
                 logger.warning(
-                    "GitHub API error for advisory %s: HTTP %d. Caching error marker.",
-                    id, e.response.status_code
+                    "GitHub API error for repo %s/%s: HTTP %d. Caching error marker.",
+                    owner, name, e.response.status_code
                 )
                 error_marker = {
                     _ERROR_MARKER_PREFIX: True,
@@ -154,14 +120,14 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
                 self._cache.set_json(key, error_marker, ttl_seconds=_ERROR_TTL_SECONDS)
             else:
                 logger.warning(
-                    "GitHub API server error for advisory %s: HTTP %d. Skipping without caching.",
-                    id, e.response.status_code
+                    "GitHub API server error for repo %s/%s: HTTP %d. Skipping without caching.",
+                    owner, name, e.response.status_code
                 )
             return None
         except Exception as e:
             logger.warning(
-                "Failed to fetch GitHub advisory %s: %s. Skipping without caching.",
-                id, type(e).__name__
+                "Failed to fetch GitHub repo %s/%s: %s. Skipping without caching.",
+                owner, name, type(e).__name__
             )
             return None
 
