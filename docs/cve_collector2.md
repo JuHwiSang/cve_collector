@@ -491,12 +491,22 @@ class ClearCacheUseCase:
   - **SimpleRateLimiter**: 간격 기반 (RPS 제한)
     - 요청 간 최소 간격 강제 (`1/rps` 초)
     - 단순하지만 버스트 처리 비효율적
+    - 메모리만 사용 (프로세스 종료 시 상태 손실)
   - **SlidingWindowRateLimiter**: 시간 윈도우 기반 (권장)
-    - `deque`로 요청 타임스탬프 추적
+    - 메모리 기반: `deque`로 요청 타임스탬프 추적
+    - 영구 저장 (선택): `CachePort` + `namespace` 주입 시 캐시에 타임스탬프 저장
+      - 키 패턴: `rate_limit:{namespace}:{timestamp}`
+      - 프로세스 간 rate limit 공유 가능 (같은 namespace 사용 시)
+      - TTL: 윈도우 시간 + 60초 (자동 만료)
     - 윈도우 내 최대 요청 수 제한 (예: 1시간에 4500개)
     - 장점: 버스트 허용, GitHub API 같은 시간 기반 제한에 정확히 대응
-    - 사용 예: `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0)`
-    - Container에서 GitHub API용으로 구성 (5000/hour 공식 한도, 안전 마진 500)
+    - 사용 예 (메모리만): `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0)`
+    - 사용 예 (영구 저장): `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0, cache=cache_port, namespace="gh_token_hash")`
+    - Container 구성:
+      - GitHub API용으로 4500/hour 설정 (5000/hour 공식 한도에서 안전 마진 500)
+      - GitHub 토큰을 SHA3-256 해싱 후 앞 12자를 namespace로 사용 (`config/token_utils.py`)
+      - 토큰이 없으면 namespace=None으로 메모리만 사용
+      - 기존 cache 리소스를 공유 사용 (rate_limit prefix로 자연스럽게 분리)
 
 ## CLI (app/cli.py)
 
