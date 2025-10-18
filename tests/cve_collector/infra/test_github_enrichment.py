@@ -37,7 +37,6 @@ def test_github_repo_enricher_sets_stars_from_http_when_cache_empty():
 def test_github_repo_enricher_uses_cache_if_present():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
-            key = "gh_advisory:GHSA-42"
             # For repo enrichment we cache repo JSON under gh_repo:{owner}/{name}
             cache.set("gh_repo:owner/name", json.dumps({"stargazers_count": 7, "size": 100}).encode("utf-8"))
             from cve_collector.config.types import AppConfig
@@ -88,6 +87,7 @@ def test_github_repo_enricher_handles_404_and_caches_error():
             # Check that error marker was cached
             cached_data = cache.get_json("gh_repo:deleted/repo")
             assert cached_data is not None
+            assert isinstance(cached_data, dict)
             assert cached_data.get(_ERROR_MARKER_PREFIX) is True
             assert cached_data.get("status_code") == 404
 
