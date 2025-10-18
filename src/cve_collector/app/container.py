@@ -14,6 +14,7 @@ from ..infra.rate_limiter import SlidingWindowRateLimiter
 from ..infra.http_client import HttpClient
 from ..config.loader import load_config
 from ..config.types import AppConfig
+from ..config.token_utils import hash_token_for_namespace
 
 
 def cache_resource(app_cfg: AppConfig):
@@ -35,6 +36,16 @@ def github_headers(app_cfg: AppConfig) -> dict[str, str]:
 	return headers
 
 
+def create_github_rate_limiter_namespace(app_cfg: AppConfig) -> str | None:
+	"""Create namespace for GitHub rate limiter based on token hash.
+
+	Returns None if no token configured (falls back to memory-only mode).
+	"""
+	if not app_cfg.github_token:
+		return None
+	return hash_token_for_namespace(app_cfg.github_token, prefix_length=12)
+
+
 class Container(containers.DeclarativeContainer):
 	config = providers.Configuration()
 
@@ -44,7 +55,16 @@ class Container(containers.DeclarativeContainer):
 
 	# GitHub API limit: 5000 requests/hour for authenticated users
 	# Using conservative 4500/hour to leave safety margin
-	rate_limiter = providers.Factory(SlidingWindowRateLimiter, max_requests=60, window_seconds=60.0)
+	# With persistent cache + namespace for cross-process rate limiting
+	github_rate_limiter_namespace = providers.Callable(create_github_rate_limiter_namespace, app_config)
+
+	rate_limiter = providers.Factory(
+		SlidingWindowRateLimiter,
+		max_requests=4500,
+		window_seconds=3600.0,
+		cache=cache,
+		namespace=github_rate_limiter_namespace,
+	)
 
 	http_client = providers.Factory(HttpClient)
 	github_http_client = providers.Factory(
