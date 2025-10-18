@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import tempfile
-import httpx
 
+import httpx
+import pytest
+
+from cve_collector.config.types import AppConfig
 from cve_collector.core.domain.models import Vulnerability, Repository
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubRepoEnricher, _ERROR_MARKER_PREFIX
@@ -25,7 +28,6 @@ def test_github_repo_enricher_sets_stars_from_http_when_cache_empty():
             cache.clear()  # Ensure clean state
             payload = {"stargazers_count": 12345, "size": 500}  # size in KB
             # AppConfig required, but tests may not use DI; pass a minimal stub
-            from cve_collector.config.types import AppConfig
             enricher = GitHubRepoEnricher(cache=cache, http_client=_StubHttp(payload), app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7))
             v = Vulnerability(ghsa_id="GHSA-1", repositories=(Repository.from_github("owner", "name", ecosystem="npm"),))
             out = enricher.enrich(v)
@@ -41,7 +43,6 @@ def test_github_repo_enricher_uses_cache_if_present():
             cache.clear()  # Ensure clean state
             # For repo enrichment we cache repo JSON under gh_repo:{owner}/{name}
             cache.set("gh_repo:owner/name", json.dumps({"stargazers_count": 7, "size": 100}).encode("utf-8"))
-            from cve_collector.config.types import AppConfig
             enricher = GitHubRepoEnricher(cache=cache, http_client=_StubHttp({}), app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7))
             v = Vulnerability(ghsa_id="GHSA-42", repositories=(Repository.from_github("owner", "name", ecosystem="pypi"),))
             out = enricher.enrich(v)
@@ -67,7 +68,6 @@ def test_github_repo_enricher_handles_404_and_caches_error():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             cache.clear()  # Ensure clean state
-            from cve_collector.config.types import AppConfig
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 http_client=_StubHttp404(),
@@ -100,7 +100,6 @@ def test_github_repo_enricher_skips_cached_errors():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             cache.clear()  # Ensure clean state
-            from cve_collector.config.types import AppConfig
 
             # Pre-populate cache with error marker
             error_marker = {
@@ -150,11 +149,9 @@ class _StubHttpRateLimit(HttpClient):
 
 def test_github_repo_enricher_raises_on_rate_limit():
     """Test that rate limit 403 errors are propagated (not cached)."""
-    import pytest
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             cache.clear()  # Ensure clean state
-            from cve_collector.config.types import AppConfig
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 http_client=_StubHttpRateLimit(),
@@ -198,7 +195,6 @@ def test_github_repo_enricher_caches_403_access_denied():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
             cache.clear()  # Ensure clean state
-            from cve_collector.config.types import AppConfig
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 http_client=_StubHttp403AccessDenied(),
