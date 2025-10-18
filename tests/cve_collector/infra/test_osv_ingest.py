@@ -39,6 +39,7 @@ def test_osv_ingest_zip_populates_cache_and_list():
     z = _make_zip_with_ghsa()
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             adapter = OSVAdapter(cache=cache, http_client=_StubHttp(z))
             count = adapter.ingest_zip("npm")
             assert count == 1
@@ -55,6 +56,7 @@ def test_osv_list_auto_ingests_when_empty():
     z = _make_zip_with_ghsa()
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             adapter = OSVAdapter(cache=cache, http_client=_StubHttp(z))
             # No prior ingest; list should trigger ingest automatically
             lst = adapter.list(ecosystem="npm")

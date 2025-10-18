@@ -20,6 +20,7 @@ class _StubHttpJson(HttpClient):
 def test_osv_get_by_ghsa_populates_basic_fields():
 	with tempfile.TemporaryDirectory() as tmp:
 		with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+			cache.clear()  # Ensure clean state
 			payload = {
 				"id": "GHSA-aaaa-bbbb-cccc",
 				"aliases": ["CVE-2020-1234", "OTHER-1"],
@@ -36,6 +37,7 @@ def test_osv_get_by_ghsa_populates_basic_fields():
 def test_osv_get_by_ghsa_uses_cache_when_present():
 	with tempfile.TemporaryDirectory() as tmp:
 		with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+			cache.clear()  # Ensure clean state
 			key = "osv:GHSA-xxxx-yyyy-zzzz"
 			raw = {"id": "GHSA-xxxx-yyyy-zzzz", "aliases": [], "summary": "S"}
 			cache.set(key, json.dumps(raw).encode("utf-8"))

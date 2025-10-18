@@ -21,6 +21,7 @@ class _StubHttp(HttpClient):
 def test_osv_enricher_enriches_basic_fields():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             payload = {
                 "id": "GHSA-aaaa-bbbb-cccc",
                 "aliases": ["CVE-2020-1234"],
@@ -42,6 +43,7 @@ def test_osv_enricher_enriches_basic_fields():
 def test_osv_enricher_uses_cache_if_present():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             key = "osv:GHSA-42"
             payload = {
                 "id": "GHSA-42",

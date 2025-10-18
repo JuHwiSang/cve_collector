@@ -13,6 +13,7 @@ from cve_collector.infra.osv_adapter import OSVAdapter
 def test_osv_enrich_populates_fields_from_cache():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             key = "osv:GHSA-aaaa-bbbb-cccc"
             payload = {
                 "id": "GHSA-aaaa-bbbb-cccc",
@@ -57,6 +58,7 @@ class _StubHttp(HttpClient):
 def test_osv_get_by_ghsa_fetches_and_caches_when_missing():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             payload = {
                 "id": "GHSA-zzzz-yyyy-xxxx",
                 "aliases": ["CVE-2024-4242"],
@@ -72,6 +74,7 @@ def test_osv_get_by_ghsa_fetches_and_caches_when_missing():
 def test_osv_list_scans_cache_entries():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             for ghsa in ("GHSA-1", "GHSA-2"):
                 raw = {"id": ghsa, "aliases": [], "summary": ghsa}
                 cache.set(f"osv:{ghsa}", json.dumps(raw).encode("utf-8"))
@@ -84,6 +87,7 @@ def test_osv_list_scans_cache_entries():
 def test_osv_list_respects_limit():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             for ghsa in ("GHSA-1", "GHSA-2", "GHSA-3"):
                 raw = {"id": ghsa, "aliases": [], "summary": ghsa}
                 cache.set(f"osv:{ghsa}", json.dumps(raw).encode("utf-8"))
@@ -95,6 +99,7 @@ def test_osv_list_respects_limit():
 def test_osv_list_raises_on_invalid_json():
     with tempfile.TemporaryDirectory() as tmp:
         with DiskCacheAdapter(namespace="test", base_dir=tmp) as cache:
+            cache.clear()  # Ensure clean state
             cache.set("osv:BAD", b"not-json")
             adapter = OSVAdapter(cache=cache, http_client=HttpClient())
             with pytest.raises(json.JSONDecodeError):
