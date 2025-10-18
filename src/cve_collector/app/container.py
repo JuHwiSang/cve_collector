@@ -44,7 +44,7 @@ class Container(containers.DeclarativeContainer):
 
 	# GitHub API limit: 5000 requests/hour for authenticated users
 	# Using conservative 4500/hour to leave safety margin
-	rate_limiter = providers.Factory(SlidingWindowRateLimiter, max_requests=4500, window_seconds=3600.0)
+	rate_limiter = providers.Factory(SlidingWindowRateLimiter, max_requests=60, window_seconds=60.0)
 
 	http_client = providers.Factory(HttpClient)
 	github_http_client = providers.Factory(
