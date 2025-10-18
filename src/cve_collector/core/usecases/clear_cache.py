@@ -7,7 +7,7 @@ class ClearCacheUseCase:
     def __init__(self, cache: CachePort) -> None:
         self._cache = cache
 
-    def execute(self) -> None:
-        self._cache.clear()
+    def execute(self, prefix: str | None = None) -> None:
+        self._cache.clear(prefix=prefix)
 
 

@@ -38,11 +38,11 @@ def dump(id: str) -> list[dict]:
         return uc.execute(id)
 
 
-def clear_cache() -> None:
-    """Clear all caches used by the application."""
+def clear_cache(prefix: str | None = None) -> None:
+    """Clear caches. Without prefix, clears all. With prefix, clears only matching keys (e.g., 'osv:', 'gh_repo:')."""
     with _provide_container() as container:
         uc = container.clear_cache_uc()
-        uc.execute()
+        uc.execute(prefix=prefix)
 
 
 __all__ = [

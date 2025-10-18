@@ -65,12 +65,15 @@ def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., G
         _print_detail(v)
 
 
-@app.command()
-def clear() -> None:
+@app.command(help="Clear cache. Without prefix, clears all. With prefix, clears only matching keys (e.g., osv:, gh_repo:).")
+def clear(prefix: str | None = typer.Argument(None, help="Cache key prefix to clear (e.g., osv:, gh_repo:)")) -> None:
     with provide_container() as container:
         uc = container.clear_cache_uc()
-        uc.execute()
-        typer.echo("Cache cleared")
+        uc.execute(prefix=prefix)
+        if prefix:
+            typer.echo(f"Cache cleared for prefix: {prefix}")
+        else:
+            typer.echo("Cache cleared")
 
 
 @app.command()

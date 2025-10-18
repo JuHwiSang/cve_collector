@@ -14,8 +14,8 @@ class CachePort(Protocol):
     def set(self, key: str, value: bytes, ttl_seconds: int | None = None) -> None:
         """Store bytes with optional TTL in seconds."""
 
-    def clear(self) -> None:
-        """Clear all cached entries for the current namespace."""
+    def clear(self, prefix: str | None = None) -> None:
+        """Clear cached entries. Without prefix, clears all. With prefix, clears only matching keys."""
 
     def iter_keys(self, prefix: str) -> Iterable[str]:
         """Iterate over keys in the current namespace matching the given prefix."""

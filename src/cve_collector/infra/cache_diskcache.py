@@ -34,9 +34,14 @@ class DiskCacheAdapter(CachePort):
         ttl = ttl_seconds if ttl_seconds is not None else self._default_ttl
         self._cache.set(key, value, expire=ttl if ttl > 0 else None)
 
-    def clear(self) -> None:
-        self._cache.clear()
-    
+    def clear(self, prefix: str | None = None) -> None:
+        if prefix is None:
+            self._cache.clear()
+        else:
+            keys_to_delete = list(self.iter_keys(prefix))
+            for key in keys_to_delete:
+                self._cache.delete(key)
+
     def iter_keys(self, prefix: str) -> Iterable[str]:
         # diskcache doesn't support prefix scan directly; iterate and filter
         for key in self._cache.iterkeys():
