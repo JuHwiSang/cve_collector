@@ -292,7 +292,8 @@ class DumpProviderPort(Protocol):
 class CachePort(Protocol):
     def get(self, key: str) -> bytes | None: ...
     def set(self, key: str, value: bytes, ttl_seconds: int | None = None) -> None: ...
-    def clear(self) -> None: ...
+    def clear(self, prefix: str | None = None) -> None: ...
+    def iter_keys(self, prefix: str) -> Iterable[str]: ...
 
 
 class RateLimiterPort(Protocol):
@@ -410,15 +411,22 @@ class RawDumpUseCase:
         return results
 ```
 
-4) 모든 캐시 삭제
+4) 캐시 삭제 (전체 또는 prefix 기반)
 
 ```python
 class ClearCacheUseCase:
     def __init__(self, cache: CachePort) -> None:
         self._cache = cache
 
-    def execute(self) -> None:
-        self._cache.clear()
+    def execute(self, prefix: str | None = None) -> None:
+        """Clear cache entries.
+
+        Args:
+            prefix: Optional prefix to clear only matching keys.
+                   None clears all cache entries.
+                   Examples: 'osv', 'gh_repo'
+        """
+        self._cache.clear(prefix=prefix)
 ```
 
 ## Infra 어댑터 개요
@@ -466,7 +474,9 @@ class ClearCacheUseCase:
   - RateLimit: RateLimiterPort 사용 권장
 
 - DiskCache (`infra/cache_diskcache.py`)
-  - 역할: `get/set/clear_all` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
+  - 역할: `get/set/clear` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
+  - `clear(prefix)`: prefix가 None이면 전체 삭제, 있으면 해당 prefix로 시작하는 키만 삭제
+    - 구현: `iter_keys(prefix)`로 키 목록을 수집한 뒤 각각 `delete()` 호출
   - 직렬화: 모델 검증/매핑은 외부 레이어에서 수행하며, 캐시는 JSON 직렬화만 담당한다.
   - 금지 규칙: import 실패 시 대체 구현(fallback) 금지. 필요 모듈 미설치면 즉시 에러.
   - 리소스 관리: `clear()`로 비우기, `close()`로 종료. 컨텍스트 매니저(with) 지원.
@@ -500,7 +510,9 @@ class ClearCacheUseCase:
 - `cve_collector detail GHSA-xxxx-xxxx-xxxx`
 - `cve_collector detail CVE-YYYY-NNNNN`
 - `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
-- `cve_collector clear`
+- `cve_collector clear` # 모든 캐시 삭제
+- `cve_collector clear osv` # OSV 데이터만 삭제 (GHSA entries)
+- `cve_collector clear gh_repo` # GitHub repository 메타데이터만 삭제 (stars, size)
 - 설치 및 실행:
   - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
 - 에러 처리: 비정상 상황은 `typer.Exit(code=1)`로 명시 종료. 조용한 fallback 금지.
@@ -582,7 +594,9 @@ v = detail("GHSA-2234-fmw7-43wr")
 payloads = dump("GHSA-2234-fmw7-43wr")
 
 # 캐시 비우기
-clear_cache()
+clear_cache()          # 전체 삭제
+clear_cache("osv")     # OSV 데이터만 삭제
+clear_cache("gh_repo") # GitHub repo 메타데이터만 삭제
 ```
 
 ## DI 조립 (dependency-injector)

@@ -65,8 +65,21 @@ def detail(id: str = typer.Argument(..., help="Vulnerability identifier (e.g., G
         _print_detail(v)
 
 
-@app.command(help="Clear cache. Without prefix, clears all. With prefix, clears only matching keys (e.g., osv:, gh_repo:).")
-def clear(prefix: str | None = typer.Argument(None, help="Cache key prefix to clear (e.g., osv:, gh_repo:)")) -> None:
+@app.command(help=(
+    "Clear cache entries. Without prefix, clears all cached data. "
+    "With prefix, clears only matching keys.\n\n"
+    "Available prefixes:\n"
+    "  osv       - OSV vulnerability data (GHSA entries)\n"
+    "  gh_repo   - GitHub repository metadata (stars, size)\n\n"
+    "Examples:\n"
+    "  cve-collector clear           # Clear all cache\n"
+    "  cve-collector clear osv       # Clear only OSV data\n"
+    "  cve-collector clear gh_repo   # Clear only GitHub repo metadata"
+))
+def clear(prefix: str | None = typer.Argument(
+    None,
+    help="Cache key prefix (osv, gh_repo). Omit to clear all."
+)) -> None:
     with provide_container() as container:
         uc = container.clear_cache_uc()
         uc.execute(prefix=prefix)
