@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-cve_collector = "cve_collector.app.cli:app"
+cve-collector = "cve_collector.app.cli:app"
 
 [project.optional-dependencies]
 tests = [
