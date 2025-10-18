@@ -19,8 +19,9 @@ CVE Collector 설계 문서 (현 네임스페이스: cve_collector)
 - import 위치: 모든 import는 파일 최상단에 배치.
 - URL 구성: 어댑터에서 문자열 결합 금지. `config/urls.py`의 `get_*_url` 함수 사용(예: `get_github_advisory_url`, `get_osv_vuln_url`).
 - 캐시 규약: `DiskCacheAdapter`는 bytes 저장/반환이 기본이며, JSON 헬퍼(`get_json/set_json`)와 모델 헬퍼(`get_model/set_model`)를 제공한다. 위반 시 `TypeError`. 컨텍스트 매니저(`with`)로 사용.
-- 키 포맷: `osv:{ID}`, `gh_advisory:{GHSA_ID}`, `gh_repo:{owner}/{name}`.
+- 키 포맷: `osv:{ID}`, `gh_repo:{owner}/{name}` (~~`gh_advisory:{GHSA_ID}`는 제거됨 - OSV에서 제공~~).
 - 테스트 레이어드: core(unit), infra(integration), app(E2E). E2E는 실제 네트워크 호출을 수행하며 안정적인 공개 GHSA 식별자(예: `GHSA-2234-fmw7-43wr`)를 고정 사용한다. 캐시는 테스트 격리를 위해 `CVE_COLLECTOR_CACHE_DIR`로 분리한다.
+- 테스트 캐시 규약: 모든 테스트는 `DiskCacheAdapter` 생성 후 즉시 `cache.clear()`를 호출하여 테스트 격리를 보장한다. 캐시 상태에 의존하는 테스트만 예외적으로 clear를 생략한다.
 
 추가 규약(라이브러리 API):
 - 패키지 레벨 API 제공: `src/cve_collector/api.py`의 함수를 패키지 루트에서 재노출한다(`from cve_collector import list_vulnerabilities, detail, dump, clear_cache`).
@@ -447,13 +448,20 @@ class ClearCacheUseCase:
   - 참고: [docs/osv_구조.md](./osv_구조.md)
 
 - GitHub Enrichment (`infra/github_enrichment.py`)
-  - 역할: GitHub Repo 메타데이터(주로 star 수, 레포 크기) 보강
+  - 역할: GitHub Repo 메타데이터(주로 star 수, 레포 크기) 보강 (~~GitHub Advisory 기능 제거 - OSV에서 제공~~)
     - 입력 `Vulnerability.repositories`에 존재하는 GitHub repo에 대해 `stargazers_count`와 `size`를 조회하여 보강
     - GitHub API의 `size` 필드는 KB 단위로 반환되므로 1024를 곱해 bytes로 변환하여 `size_bytes`에 저장
-  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_repo:{owner}/{name}`
-  - Negative Caching: 4xx 에러(404 등)는 에러 마커(`{"__error__": True, "status_code": 404, ...}`)로 1일간 캐시하여 반복 요청 방지
+  - 포트 구현: `VulnerabilityEnrichmentPort`, `DumpProviderPort` (둘 다 GitHub Repo 전용)
+    - `enrich(v)`: `v.repositories`의 GitHub repo에 대해 star/size 보강
+    - `dump(id)`: `"owner/name"` 형식으로 repo 정보 반환 (내부적으로 `enrich()`가 재사용)
+  - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷: `gh_repo:{owner}/{name}`
+  - Negative Caching: 4xx 에러(404, 403 access denied 등)는 에러 마커(`{"__error__": True, "status_code": 404, ...}`)로 1일간 캐시하여 반복 요청 방지
     - 캐시된 에러 마커 발견 시 해당 repo enrichment를 스킵하고 warning 로그 출력
     - 5xx 서버 에러 및 네트워크 에러는 캐시하지 않음 (일시적 문제일 수 있음)
+  - **Rate Limit 403 특별 처리**: 403 에러 응답의 `message` 필드에 "rate limit"이 포함된 경우:
+    - 치명적 에러로 간주하여 즉시 예외 re-raise (전체 enrichment 중단)
+    - 캐시하지 않음 (rate limit은 일시적 상태)
+    - 일반 403 (access denied)과 구분하여 처리
   - URL: `config/urls.py`의 `get_github_repo_url(owner, name)` 사용
   - RateLimit: RateLimiterPort 사용 권장
 
@@ -624,12 +632,13 @@ class Container(containers.DeclarativeContainer):
 
 ## 캐시/성능/에러 처리 지침
 
-- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:{ID}`, `gh_advisory:{GHSA_ID}`, `gh_repo:{owner}/{name}`.
+- 캐시 키: 데이터 소스/엔드포인트/파라미터가 드러나게 구성한다. 예) `osv:{ID}`, `gh_repo:{owner}/{name}` (~~`gh_advisory:{GHSA_ID}`는 제거됨~~).
 - TTL: GitHub 30일, OSV 7일(권장). CLI 옵션으로 오버라이드 가능.
 - 동시성: 초기엔 동기 구현 후, 대용량 처리 시 `ThreadPoolExecutor`로 보강(Enricher의 `enrich_many`).
-- 에러 처리: 
+- 에러 처리:
   - 404/Null: 존재하지 않는 GHSA는 None 처리, CLI는 친절한 메시지 출력
-  - 403: Rate limit 초과 시 대기 또는 즉시 실패 후 재시도 힌트 제공
+  - 403 Rate Limit: GitHub API rate limit 초과 시 즉시 예외 발생 (message에 "rate limit" 포함 시). 캐시하지 않음.
+  - 403 Access Denied: 일반 403 (access denied)은 negative cache 처리 (1일 TTL)
   - 네트워크: 타임아웃/재시도(지수 백오프) 기본 적용
 
 ## 출력 규칙 (app 레벨)
