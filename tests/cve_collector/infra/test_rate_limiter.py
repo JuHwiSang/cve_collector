@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import tempfile
 import time
 
 from cve_collector.infra.rate_limiter import SimpleRateLimiter, SlidingWindowRateLimiter
+from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 
 
 def test_simple_rate_limiter_enforces_interval():
@@ -83,3 +85,93 @@ def test_sliding_window_accurate_burst_handling():
     total_elapsed = time.monotonic() - start
     # First 10 instant, next 5 need to wait for window to slide
     assert total_elapsed >= 0.95
+
+
+def test_sliding_window_with_cache_persists_state():
+    """Test that rate limiter state persists across instances when using cache."""
+    with tempfile.TemporaryDirectory() as tmp:
+        with DiskCacheAdapter(namespace="rate_limiter_test", base_dir=tmp) as cache:
+            # Clear any existing state
+            cache.clear()
+
+            # First instance: use up 3 of 5 requests
+            rl1 = SlidingWindowRateLimiter(
+                max_requests=5,
+                window_seconds=2.0,
+                cache=cache,
+                namespace="test_token_hash"
+            )
+            for _ in range(3):
+                rl1.acquire()
+
+            # Second instance with same namespace should see the same state
+            rl2 = SlidingWindowRateLimiter(
+                max_requests=5,
+                window_seconds=2.0,
+                cache=cache,
+                namespace="test_token_hash"
+            )
+
+            # Should allow 2 more requests immediately (total 5)
+            start = time.monotonic()
+            rl2.acquire()
+            rl2.acquire()
+            elapsed = time.monotonic() - start
+            assert elapsed < 0.1  # Fast since we're under limit
+
+            # 6th request should block
+            start = time.monotonic()
+            rl2.acquire()
+            elapsed = time.monotonic() - start
+            assert elapsed >= 1.9  # Should wait ~2 seconds
+
+
+def test_sliding_window_different_namespaces_independent():
+    """Test that different namespaces have independent rate limits."""
+    with tempfile.TemporaryDirectory() as tmp:
+        with DiskCacheAdapter(namespace="rate_limiter_test", base_dir=tmp) as cache:
+            cache.clear()
+
+            # Two limiters with different namespaces
+            rl1 = SlidingWindowRateLimiter(
+                max_requests=3,
+                window_seconds=1.0,
+                cache=cache,
+                namespace="token_a"
+            )
+            rl2 = SlidingWindowRateLimiter(
+                max_requests=3,
+                window_seconds=1.0,
+                cache=cache,
+                namespace="token_b"
+            )
+
+            # Use up limit on namespace "token_a"
+            for _ in range(3):
+                rl1.acquire()
+
+            # namespace "token_b" should still allow requests immediately
+            start = time.monotonic()
+            for _ in range(3):
+                rl2.acquire()
+            elapsed = time.monotonic() - start
+
+            assert elapsed < 0.1  # Should be fast since token_b is independent
+
+
+def test_sliding_window_without_cache_memory_only():
+    """Test that rate limiter works without cache (memory-only mode)."""
+    rl = SlidingWindowRateLimiter(max_requests=3, window_seconds=0.5)
+
+    # Should allow 3 requests immediately
+    start = time.monotonic()
+    for _ in range(3):
+        rl.acquire()
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.1
+
+    # 4th request should block
+    start = time.monotonic()
+    rl.acquire()
+    elapsed = time.monotonic() - start
+    assert elapsed >= 0.45
