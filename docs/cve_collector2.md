@@ -451,6 +451,9 @@ class ClearCacheUseCase:
     - 입력 `Vulnerability.repositories`에 존재하는 GitHub repo에 대해 `stargazers_count`와 `size`를 조회하여 보강
     - GitHub API의 `size` 필드는 KB 단위로 반환되므로 1024를 곱해 bytes로 변환하여 `size_bytes`에 저장
   - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷 예: `gh_repo:{owner}/{name}`
+  - Negative Caching: 4xx 에러(404 등)는 에러 마커(`{"__error__": True, "status_code": 404, ...}`)로 1일간 캐시하여 반복 요청 방지
+    - 캐시된 에러 마커 발견 시 해당 repo enrichment를 스킵하고 warning 로그 출력
+    - 5xx 서버 에러 및 네트워크 에러는 캐시하지 않음 (일시적 문제일 수 있음)
   - URL: `config/urls.py`의 `get_github_repo_url(owner, name)` 사용
   - RateLimit: RateLimiterPort 사용 권장
 
@@ -462,7 +465,20 @@ class ClearCacheUseCase:
 
 - HTTP Client (`infra/http_client.py`)
   - 역할: 세션 재사용, 타임아웃. 응답코드 비정상이면 즉시 예외. JSON은 object만 허용.
+  - 리다이렉트: `follow_redirects=True` (301/302 등 자동 추적), `max_redirects=10` (무한 루프 방지)
+  - Rate Limiting: 선택적으로 `RateLimiterPort`를 주입받아 모든 HTTP 요청 전에 `acquire()` 호출
   - 인증 헤더: `app/container.py`에서 `GITHUB_TOKEN`이 설정된 경우 Authorization/Accept/X-GitHub-Api-Version 헤더를 주입한다.
+
+- Rate Limiter (`infra/rate_limiter.py`)
+  - **SimpleRateLimiter**: 간격 기반 (RPS 제한)
+    - 요청 간 최소 간격 강제 (`1/rps` 초)
+    - 단순하지만 버스트 처리 비효율적
+  - **SlidingWindowRateLimiter**: 시간 윈도우 기반 (권장)
+    - `deque`로 요청 타임스탬프 추적
+    - 윈도우 내 최대 요청 수 제한 (예: 1시간에 4500개)
+    - 장점: 버스트 허용, GitHub API 같은 시간 기반 제한에 정확히 대응
+    - 사용 예: `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0)`
+    - Container에서 GitHub API용으로 구성 (5000/hour 공식 한도, 안전 마진 500)
 
 ## CLI (app/cli.py)
 
