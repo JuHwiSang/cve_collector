@@ -12,7 +12,7 @@ from ..core.ports.cache_port import CachePort
 class DiskCacheAdapter(CachePort):
     def __init__(self, namespace: str, default_ttl_seconds: int = 0, base_dir: Optional[str] = None) -> None:
         self._namespace = namespace
-        cache_dir = base_dir or os.getenv("CVE_COLLECTOR_CACHE_DIR")
+        cache_dir = base_dir
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
             path = os.path.join(cache_dir, namespace)
