@@ -31,8 +31,7 @@ def github_headers(app_cfg: AppConfig) -> dict[str, str]:
 	headers: dict[str, str] = {"User-Agent": "cve-collector/1.0"}
 	if app_cfg.github_token:
 		headers["Authorization"] = f"Bearer {app_cfg.github_token}"
-		headers["Accept"] = "application/vnd.github+json"
-		headers["X-GitHub-Api-Version"] = "2022-11-28"
+		headers["Accept"] = "application/vnd.github.v3+json"
 	return headers
 
 
