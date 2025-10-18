@@ -9,12 +9,6 @@ from .container import Container
 from ..core.domain.models import Vulnerability
 import json
 
-try:
-    import dotenv
-    dotenv.load_dotenv()
-except ImportError:
-    pass  # dotenv not installed; skip
-
 
 app = typer.Typer(help="CVE Collector")
 
@@ -194,6 +188,12 @@ def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as 
 
 
 if __name__ == "__main__":  # pragma: no cover
+    try:
+        import dotenv
+        dotenv.load_dotenv()
+    except ImportError:
+        pass  # dotenv not installed; skip
+    
     app()
 
 
