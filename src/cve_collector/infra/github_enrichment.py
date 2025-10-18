@@ -106,7 +106,25 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
             self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
             return data
         except httpx.HTTPStatusError as e:
-            # Cache 404 and other client errors
+            # Special handling for 403: distinguish rate limit from access denied
+            if e.response.status_code == 403:
+                # Try to parse response to detect rate limit
+                try:
+                    error_body = e.response.json()
+                except Exception:
+                    # If we can't parse the response, treat as access denied
+                    pass
+                else:
+                    error_message = error_body.get("message", "")
+                    if "rate limit" in error_message.lower():
+                        # Rate limit exceeded - this is a fatal error, propagate it
+                        logger.error(
+                            "GitHub API rate limit exceeded for repo %s/%s. Cannot continue enrichment.",
+                            owner, name
+                        )
+                        raise  # Re-raise the exception to stop processing
+
+            # Cache 404 and other client errors (including non-rate-limit 403)
             if 400 <= e.response.status_code < 500:
                 logger.warning(
                     "GitHub API error for repo %s/%s: HTTP %d. Caching error marker.",
