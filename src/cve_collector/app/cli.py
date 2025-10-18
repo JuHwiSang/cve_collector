@@ -9,6 +9,12 @@ from .container import Container
 from ..core.domain.models import Vulnerability
 import json
 
+try:
+    import dotenv
+    dotenv.load_dotenv()
+except ImportError:
+    pass  # dotenv not installed; skip
+
 
 app = typer.Typer(help="CVE Collector")
 
