@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import logging
 
-import httpx
+from github import Github, GithubException, RateLimitExceededException
 
 from ..config.types import AppConfig
-from ..config.urls import get_github_repo_url
 from ..core.domain.models import Repository, Vulnerability
 from ..core.ports.cache_port import CachePort
 from ..core.ports.dump_port import DumpProviderPort
 from ..core.ports.enrich_port import VulnerabilityEnrichmentPort
-from .http_client import HttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +21,9 @@ _ERROR_TTL_SECONDS = 24 * 3600  # Cache errors for 1 day (shorter than normal ca
 
 
 class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
-    def __init__(self, cache: CachePort, http_client: HttpClient, app_config: AppConfig) -> None:
+    def __init__(self, cache: CachePort, github_client: Github, app_config: AppConfig) -> None:
         self._cache = cache
-        self._http = http_client
+        self._github = github_client
         self._cfg = app_config
 
     def enrich(self, v: Vulnerability) -> Vulnerability:
@@ -92,61 +90,30 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
         # Check for negative cache marker (previous errors)
         if isinstance(data, dict):
             if data.get(_ERROR_MARKER_PREFIX):
-                logger.warning(
-                    "Skipping GitHub repo dump due to cached error: %s/%s (status: %s)",
-                    owner, name, data.get("status_code", "unknown")
-                )
+                logger.warning("Skipping GitHub repo dump due to cached error: %s/%s", owner, name)
                 return None
             return data
 
-        url = get_github_repo_url(owner, name)
         try:
-            data = self._http.get_json(url)
+            repo = self._github.get_repo(f"{owner}/{name}")
+            data = repo.raw_data
+
             ttl_seconds = int(self._cfg.github_cache_ttl_days) * 24 * 3600
             self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
             return data
-        except httpx.HTTPStatusError as e:
-            # Special handling for 403: distinguish rate limit from access denied
-            if e.response.status_code == 403:
-                # Try to parse response to detect rate limit
-                try:
-                    error_body = e.response.json()
-                except Exception:
-                    # If we can't parse the response, treat as access denied
-                    pass
-                else:
-                    error_message = error_body.get("message", "")
-                    if "rate limit" in error_message.lower():
-                        # Rate limit exceeded - this is a fatal error, propagate it
-                        logger.error(
-                            "GitHub API rate limit exceeded for repo %s/%s. Cannot continue enrichment.",
-                            owner, name
-                        )
-                        raise  # Re-raise the exception to stop processing
 
-            # Cache 404 and other client errors (including non-rate-limit 403)
-            if 400 <= e.response.status_code < 500:
-                logger.warning(
-                    "GitHub API error for repo %s/%s: HTTP %d. Caching error marker.",
-                    owner, name, e.response.status_code
-                )
-                error_marker = {
-                    _ERROR_MARKER_PREFIX: True,
-                    "status_code": e.response.status_code,
-                    "url": str(e.request.url)
-                }
-                self._cache.set_json(key, error_marker, ttl_seconds=_ERROR_TTL_SECONDS)
-            else:
-                logger.warning(
-                    "GitHub API server error for repo %s/%s: HTTP %d. Skipping without caching.",
-                    owner, name, e.response.status_code
-                )
+        except RateLimitExceededException:
+            logger.error("GitHub API rate limit exceeded for repo %s/%s", owner, name)
+            raise
+
+        except GithubException as e:
+            logger.warning("GitHub API error for repo %s/%s: %s", owner, name, e)
+            error_marker = {_ERROR_MARKER_PREFIX: True}
+            self._cache.set_json(key, error_marker, ttl_seconds=_ERROR_TTL_SECONDS)
             return None
+
         except Exception as e:
-            logger.warning(
-                "Failed to fetch GitHub repo %s/%s: %s. Skipping without caching.",
-                owner, name, type(e).__name__
-            )
+            logger.warning("Failed to fetch GitHub repo %s/%s: %s", owner, name, type(e).__name__)
             return None
 
 
