@@ -42,12 +42,15 @@ class ListVulnerabilitiesUseCase:
         result: list[Vulnerability] = []
         target_limit = limit or float('inf')
         processed_count = 0
+        skipped_count = 0
 
         for item in items:
             processed_count += 1
+            logger.debug(f"Processing {processed_count}/{len(items)}: {item.ghsa_id}")
 
             # Apply enrichment if detailed
             if detailed and self._enricher:
+                logger.debug(f"Enriching {item.ghsa_id}")
                 item = self._enricher.enrich(item)
 
             # Apply filter if provided
@@ -55,17 +58,21 @@ class ListVulnerabilitiesUseCase:
                 # Filter single item
                 filtered = filter_vulnerabilities([item], filter_expr)
                 if not filtered:
+                    skipped_count += 1
+                    logger.debug(f"Skipped {item.ghsa_id}: did not match filter '{filter_expr}'")
                     continue  # Skip this item
                 item = filtered[0]
 
             # Add to result
             result.append(item)
+            logger.debug(f"Added {item.ghsa_id} to results (total: {len(result)})")
 
             # Stop if we have enough
             if len(result) >= target_limit:
+                logger.debug(f"Reached target limit of {target_limit}, stopping")
                 break
 
-        logger.info(f"Processed {processed_count} items, returned {len(result)} results")
+        logger.info(f"Processed {processed_count} items, skipped {skipped_count}, returned {len(result)} results")
         return result[:int(target_limit)] if limit else result
 
 
