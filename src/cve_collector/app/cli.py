@@ -194,6 +194,9 @@ def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as 
 
 def main() -> None:
     """Entry point for the CLI application."""
+    
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    
     logger.info("CVE Collector starting")
 
     try:
