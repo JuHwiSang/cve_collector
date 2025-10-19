@@ -462,16 +462,22 @@ class ClearCacheUseCase:
   - 포트 구현: `VulnerabilityEnrichmentPort`, `DumpProviderPort` (둘 다 GitHub Repo 전용)
     - `enrich(v)`: `v.repositories`의 GitHub repo에 대해 star/size 보강
     - `dump(id)`: `"owner/name"` 형식으로 repo 정보 반환 (내부적으로 `enrich()`가 재사용)
+  - **PyGithub 라이브러리 사용**:
+    - `httpx` 대신 `PyGithub` 라이브러리로 GitHub API 호출
+    - 인증: `Auth.Token(github_token)` 사용, 토큰 없으면 익명 클라이언트
+    - 데이터 조회: `github.get_repo(f"{owner}/{name}").raw_data`로 전체 repo 정보 획득
+    - 리소스 관리: DI Container에서 `Github` 클라이언트를 Resource로 관리, 종료 시 `client.close()` 호출
   - 캐싱: CachePort로 응답 캐시 (기본 TTL 30일). 키 포맷: `gh_repo:{owner}/{name}`
-  - Negative Caching: 4xx 에러(404, 403 access denied 등)는 에러 마커(`{"__error__": True, "status_code": 404, ...}`)로 1일간 캐시하여 반복 요청 방지
+  - **Negative Caching (간소화)**:
+    - GithubException (404, 403 등) 발생 시 에러 마커(`{"__error__": True}`)로 1일간 캐시
     - 캐시된 에러 마커 발견 시 해당 repo enrichment를 스킵하고 warning 로그 출력
-    - 5xx 서버 에러 및 네트워크 에러는 캐시하지 않음 (일시적 문제일 수 있음)
-  - **Rate Limit 403 특별 처리**: 403 에러 응답의 `message` 필드에 "rate limit"이 포함된 경우:
-    - 치명적 에러로 간주하여 즉시 예외 re-raise (전체 enrichment 중단)
+    - 알 수 없는 에러(Exception)는 캐시하지 않음
+  - **Rate Limit 처리**:
+    - `RateLimitExceededException` 발생 시 즉시 예외 re-raise (전체 enrichment 중단)
     - 캐시하지 않음 (rate limit은 일시적 상태)
-    - 일반 403 (access denied)과 구분하여 처리
-  - URL: `config/urls.py`의 `get_github_repo_url(owner, name)` 사용
-  - RateLimit: RateLimiterPort 사용 권장
+  - 디버깅 로그:
+    - Container 초기화 시 GitHub 토큰 상태 로깅 (첫 8자 + 길이)
+    - Rate limit 정보 로깅 (remaining/limit, reset 시간)
 
 - DiskCache (`infra/cache_diskcache.py`)
   - 역할: `get/set/clear` + `iter_keys(prefix)` 구현. JSON/모델 헬퍼는 `CachePort` 기본 구현 사용. 디렉토리: `platformdirs` 사용자 캐시 디렉토리 하위 네임스페이스 분리
@@ -485,7 +491,7 @@ class ClearCacheUseCase:
   - 역할: 세션 재사용, 타임아웃. 응답코드 비정상이면 즉시 예외. JSON은 object만 허용.
   - 리다이렉트: `follow_redirects=True` (301/302 등 자동 추적), `max_redirects=10` (무한 루프 방지)
   - Rate Limiting: 선택적으로 `RateLimiterPort`를 주입받아 모든 HTTP 요청 전에 `acquire()` 호출
-  - 인증 헤더: `app/container.py`에서 `GITHUB_TOKEN`이 설정된 경우 Authorization/Accept/X-GitHub-Api-Version 헤더를 주입한다.
+  - **사용처**: OSV API 전용 (GitHub API는 PyGithub 사용)
 
 - Rate Limiter (`infra/rate_limiter.py`)
   - **SimpleRateLimiter**: 간격 기반 (RPS 제한)
@@ -511,6 +517,9 @@ class ClearCacheUseCase:
 ## CLI (app/cli.py)
 
 - Typer 기반 단일 엔트리포인트. 출력은 보기 좋게(테이블/하이라이트) 구성하되, 유즈케이스는 도메인 객체만 반환.
+- **진입점**: `pyproject.toml`에서 `cve_collector.app.cli:main` 지정
+  - `main()` 함수에서 `.env` 파일 로드 후 `app()` (Typer) 실행
+  - Container 초기화 전에 환경변수(`GITHUB_TOKEN` 등) 로드 보장
 - 명령:
 - `cve_collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요). 기본 limit=10
 - `cve_collector list --ecosystem npm --limit 50`
@@ -613,19 +622,44 @@ clear_cache("gh_repo") # GitHub repo 메타데이터만 삭제
 
 ```python
 from dependency_injector import containers, providers
+from github import Auth, Github
+
 from cve_collector.config.loader import load_config
 from cve_collector.config.types import AppConfig
+from cve_collector.config.token_utils import hash_token_for_namespace
 from cve_collector.core.services.composite_enricher import CompositeEnricher
 from cve_collector.core.usecases import list_vulnerabilities, detail_vulnerability, clear_cache
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubRepoEnricher
 from cve_collector.infra.osv_adapter import OSVAdapter
-from cve_collector.infra.rate_limiter import SimpleRateLimiter
+from cve_collector.infra.rate_limiter import SlidingWindowRateLimiter
+from cve_collector.infra.http_client import HttpClient
 
 
 def cache_resource(app_cfg: AppConfig):
   with DiskCacheAdapter(namespace="github", default_ttl_seconds=30*24*3600, base_dir=app_cfg.cache_dir) as cache:
     yield cache
+
+
+def github_client_resource(app_cfg: AppConfig):
+  """PyGithub 클라이언트를 리소스로 관리 (인증 + cleanup)"""
+  if app_cfg.github_token:
+    auth = Auth.Token(app_cfg.github_token)
+    client = Github(auth=auth)
+  else:
+    client = Github()
+
+  try:
+    yield client
+  finally:
+    client.close()
+
+
+def create_github_rate_limiter_namespace(app_cfg: AppConfig) -> str | None:
+  """GitHub 토큰 해시 기반 namespace 생성 (프로세스 간 rate limit 공유)"""
+  if not app_cfg.github_token:
+    return None
+  return hash_token_for_namespace(app_cfg.github_token, prefix_length=12)
 
 
 class Container(containers.DeclarativeContainer):
@@ -634,20 +668,42 @@ class Container(containers.DeclarativeContainer):
   app_config = providers.Callable(load_config)
   cache = providers.Resource(cache_resource, app_config)
 
-  rate_limiter = providers.Factory(SimpleRateLimiter, rps=1.5)
-  index = providers.Factory(OSVAdapter, cache=cache)
+  # PyGithub 클라이언트 (인증 + 리소스 관리)
+  github_client = providers.Resource(github_client_resource, app_config)
 
+  # GitHub rate limiter (4500/hour, 캐시 기반 영구 저장 + namespace)
+  github_rate_limiter_namespace = providers.Callable(create_github_rate_limiter_namespace, app_config)
+  rate_limiter = providers.Factory(
+    SlidingWindowRateLimiter,
+    max_requests=4500,
+    window_seconds=3600.0,
+    cache=cache,
+    namespace=github_rate_limiter_namespace,
+  )
+
+  # HTTP 클라이언트 (OSV API 전용)
+  http_client = providers.Factory(HttpClient)
+
+  # Index (OSV)
+  index = providers.Factory(OSVAdapter, cache=cache, http_client=http_client)
+
+  # Enrichers (OSV + GitHub)
   enrichers = providers.List(
-    providers.Factory(GitHubRepoEnricher, cache=cache),
+    providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
+    providers.Factory(GitHubRepoEnricher, cache=cache, github_client=github_client, app_config=app_config),
   )
-  raw_providers = providers.List(
-    providers.Factory(GitHubRepoEnricher, cache=cache),
+
+  # Dump providers
+  dump_providers = providers.List(
+    providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
   )
+
   composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
+  # Use cases
   list_uc = providers.Factory(list_vulnerabilities.ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
   detail_uc = providers.Factory(detail_vulnerability.DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
-  raw_uc = providers.Factory(raw_dump.RawDumpUseCase, providers=raw_providers)
+  dump_uc = providers.Factory(raw_dump.RawDumpUseCase, providers=dump_providers)
   clear_cache_uc = providers.Factory(clear_cache.ClearCacheUseCase, cache=cache)
 ```
 
