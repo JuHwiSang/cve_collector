@@ -187,13 +187,18 @@ def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as 
         print(json.dumps(payloads, ensure_ascii=False, indent=2))
 
 
-if __name__ == "__main__":  # pragma: no cover
+def main() -> None:
+    """Entry point for the CLI application."""
     try:
         import dotenv
         dotenv.load_dotenv()
     except ImportError:
         pass  # dotenv not installed; skip
-    
+
     app()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
 
 
