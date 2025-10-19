@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Iterator, Sequence
 
@@ -9,18 +10,22 @@ from .container import Container
 from ..core.domain.models import Vulnerability
 import json
 
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(help="CVE Collector")
 
 
 @contextmanager
 def provide_container() -> Iterator[Container]:
+    logger.debug("Initializing DI container")
     container = Container()
+    logger.debug("Initializing container resources")
     container.init_resources()
     container.wire(modules=[__name__])
     try:
         yield container
     finally:
+        logger.debug("Shutting down container resources")
         container.shutdown_resources()
 
 
@@ -189,12 +194,19 @@ def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as 
 
 def main() -> None:
     """Entry point for the CLI application."""
+    logger.info("CVE Collector starting")
+
     try:
         import dotenv
+        logger.debug("Loading .env file")
         dotenv.load_dotenv()
+        logger.info(".env file loaded successfully")
     except ImportError:
-        pass  # dotenv not installed; skip
+        logger.warning("python-dotenv not installed, skipping .env file loading")
+    except Exception as e:
+        logger.warning(f"Failed to load .env file: {e}")
 
+    logger.debug("Starting Typer app")
     app()
 
 

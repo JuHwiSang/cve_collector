@@ -24,12 +24,15 @@ logger = logging.getLogger(__name__)
 
 def cache_resource(app_cfg: AppConfig):
 	cache_dir = app_cfg.cache_dir
+	logger.info(f"Initializing cache at: {cache_dir or 'default user cache directory'}")
 	with DiskCacheAdapter(
 		namespace="github",
 		default_ttl_seconds=30 * 24 * 3600,
 		base_dir=cache_dir,
 	) as cache:
+		logger.debug("Cache initialized successfully")
 		yield cache
+	logger.debug("Cache closed")
 
 
 def github_client_resource(app_cfg: AppConfig):
@@ -37,14 +40,17 @@ def github_client_resource(app_cfg: AppConfig):
 
 	Returns authenticated client if token is available, otherwise anonymous client.
 	"""
+	logger.info("Initializing GitHub client")
+
 	# Debug: Log token status
 	if app_cfg.github_token:
 		token_preview = f"{app_cfg.github_token[:8]}..." if len(app_cfg.github_token) > 8 else "***"
 		logger.info(f"GitHub token found: {token_preview} (length: {len(app_cfg.github_token)})")
+		logger.debug("Creating authenticated GitHub client")
 		auth = Auth.Token(app_cfg.github_token)
 		client = Github(auth=auth)
 	else:
-		logger.warning("No GitHub token configured - using anonymous client")
+		logger.warning("No GitHub token configured - using anonymous client (rate limit: 60/hour)")
 		client = Github()
 
 	# Debug: Log rate limit info
@@ -61,6 +67,7 @@ def github_client_resource(app_cfg: AppConfig):
 	try:
 		yield client
 	finally:
+		logger.debug("Closing GitHub client")
 		# PyGithub's close() method properly closes the underlying HTTP connection
 		client.close()
 

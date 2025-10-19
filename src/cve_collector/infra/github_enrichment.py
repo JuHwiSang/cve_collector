@@ -34,7 +34,12 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
         GitHub repo fields that require calling the GitHub API (stars).
         """
         if not v.repositories:
+            logger.debug("No repositories found for %s, skipping GitHub enrichment", v.ghsa_id)
             return v
+
+        github_repos = [r for r in v.repositories if r.platform == "github" and r.owner and r.name]
+        if github_repos:
+            logger.info("Enriching %s with GitHub metadata for %d repositories", v.ghsa_id, len(github_repos))
 
         updated_repos: list[Repository] = []
         for repo in v.repositories:
@@ -62,6 +67,10 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
                         size_bytes = size_val * 1024
                     else:
                         size_bytes = None
+
+                    if stars is not None or size_bytes is not None:
+                        logger.debug("Enriched %s/%s: stars=%s, size=%s bytes", repo.owner, repo.name, stars, size_bytes)
+
                 # Preserve existing ecosystem from input repo
                 updated_repos.append(Repository.from_github(repo.owner, repo.name, stars=stars, size_bytes=size_bytes, ecosystem=repo.ecosystem))
             else:
@@ -90,16 +99,19 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
         # Check for negative cache marker (previous errors)
         if isinstance(data, dict):
             if data.get(_ERROR_MARKER_PREFIX):
-                logger.warning("Skipping GitHub repo dump due to cached error: %s/%s", owner, name)
+                logger.debug("Cache hit (error marker) for %s/%s", owner, name)
                 return None
+            logger.debug("Cache hit for %s/%s", owner, name)
             return data
 
+        logger.debug("Fetching GitHub repo data for %s/%s", owner, name)
         try:
             repo = self._github.get_repo(f"{owner}/{name}")
             data = repo.raw_data
 
             ttl_seconds = int(self._cfg.github_cache_ttl_days) * 24 * 3600
             self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
+            logger.info("Successfully fetched and cached %s/%s", owner, name)
             return data
 
         except RateLimitExceededException:
