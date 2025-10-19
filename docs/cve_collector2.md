@@ -521,19 +521,19 @@ class ClearCacheUseCase:
   - `main()` 함수에서 `.env` 파일 로드 후 `app()` (Typer) 실행
   - Container 초기화 전에 환경변수(`GITHUB_TOKEN` 등) 로드 보장
 - 명령:
-- `cve_collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요). 기본 limit=10
-- `cve_collector list --ecosystem npm --limit 50`
-- `cve_collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 에코시스템, 레포, 스타, 크기 포함
-- `cve_collector list --filter 'stars > 1000'` # asteval 기반 동적 필터링
-- `cve_collector list -f 'severity == "HIGH" and has_cve'` # 복합 조건 필터
-- `cve_collector detail GHSA-xxxx-xxxx-xxxx`
-- `cve_collector detail CVE-YYYY-NNNNN`
-- `cve_collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
-- `cve_collector clear` # 모든 캐시 삭제
-- `cve_collector clear osv` # OSV 데이터만 삭제 (GHSA entries)
-- `cve_collector clear gh_repo` # GitHub repository 메타데이터만 삭제 (stars, size)
+- `cve-collector list` # ecosystem 미지정 시 모든 ecosystem 표시 (캐시 필요). 기본 limit=10
+- `cve-collector list --ecosystem npm --limit 50`
+- `cve-collector list -d` (또는 `--detail`) # 상세 모드: 심각도, 에코시스템, 레포, 스타, 크기 포함
+- `cve-collector list --filter 'stars > 1000'` # asteval 기반 동적 필터링
+- `cve-collector list -f 'severity == "HIGH" and has_cve'` # 복합 조건 필터
+- `cve-collector detail GHSA-xxxx-xxxx-xxxx`
+- `cve-collector detail CVE-YYYY-NNNNN`
+- `cve-collector dump GHSA-xxxx-xxxx-xxxx`  # 구성된 RawProvider들의 원본 JSON 배열 출력
+- `cve-collector clear` # 모든 캐시 삭제
+- `cve-collector clear osv` # OSV 데이터만 삭제 (GHSA entries)
+- `cve-collector clear gh_repo` # GitHub repository 메타데이터만 삭제 (stars, size)
 - 설치 및 실행:
-  - `pip install -e .` 후 `cve_collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
+  - `pip install -e .` 후 `cve-collector ...` 스크립트 호출 (pyproject `[project.scripts]`).
 - 에러 처리: 비정상 상황은 `typer.Exit(code=1)`로 명시 종료. 조용한 fallback 금지.
 - 덕타이핑 금지: `Any`, `cast`, `getattr`, `type: ignore` 금지. 출력 함수 시그니처는 구체 타입(`Sequence[Vulnerability]`, `Vulnerability`).
 
@@ -572,22 +572,22 @@ class ClearCacheUseCase:
 - **표현식 예시**:
   ```bash
   # 심각도 필터
-  cve_collector list -f 'severity == "HIGH"'
+  cve-collector list -f 'severity == "HIGH"'
 
   # 스타 수 기반 필터
-  cve_collector list -f 'stars > 1000'
+  cve-collector list -f 'stars > 1000'
 
   # 복합 조건
-  cve_collector list -f 'has_cve and stars > 500'
+  cve-collector list -f 'has_cve and stars > 500'
 
   # in 연산자
-  cve_collector list -f 'severity in ["CRITICAL", "HIGH"]'
+  cve-collector list -f 'severity in ["CRITICAL", "HIGH"]'
 
   # 날짜 비교
-  cve_collector list -f 'modified_at > published_at'
+  cve-collector list -f 'modified_at > published_at'
 
   # PoC 존재 여부
-  cve_collector list -f 'poc_count > 0'
+  cve-collector list -f 'poc_count > 0'
   ```
 
 - **에러 처리**: 잘못된 표현식은 `ValueError`를 발생시키며, CLI에서 `typer.Exit(code=1)`로 처리

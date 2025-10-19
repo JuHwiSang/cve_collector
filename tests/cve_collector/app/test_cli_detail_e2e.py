@@ -6,7 +6,7 @@ import re
 
 
 def run_cli(args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-	result = subprocess.run(["cve_collector", *args], capture_output=True, text=True, env=env)
+	result = subprocess.run(["cve-collector", *args], capture_output=True, text=True, env=env)
 	return result
 
 

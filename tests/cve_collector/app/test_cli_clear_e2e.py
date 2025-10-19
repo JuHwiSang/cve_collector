@@ -4,7 +4,7 @@ import subprocess
 
 
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
-	return subprocess.run(["cve_collector", *args], capture_output=True, text=True)
+	return subprocess.run(["cve-collector", *args], capture_output=True, text=True)
 
 
 def test_cli_clear_exits_zero():

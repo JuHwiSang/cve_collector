@@ -6,7 +6,7 @@ import json
 
 
 def run_cli(args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-	return subprocess.run(["cve_collector", *args], capture_output=True, text=True, env=env)
+	return subprocess.run(["cve-collector", *args], capture_output=True, text=True, env=env)
 
 
 def test_cli_dump_missing_arg_exits_2():

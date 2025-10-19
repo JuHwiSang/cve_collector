@@ -4,7 +4,7 @@ Collect and print GHSA data as JSON.
 
 ### Install
 ```bash
-pip install git+https://github.com/JuHwiSang/cve_collector
+pip install git+https://github.com/JuHwiSang/cve-collector
 ```
 
 ### Configure token
@@ -22,20 +22,20 @@ $env:GITHUB_TOKEN="YOUR_GITHUB_TOKEN"
 ### CLI
 ```bash
 # Fetch all identifiers since date (prints identifiers line-by-line, then Total)
-cve_collector run all --since 2024-01-01 --log-level INFO
+cve-collector run all --since 2024-01-01 --log-level INFO
 
 # Single identifier (prints key: value per line)
 # CVE is not supported yet
-cve_collector run GHSA-xxxx-xxxx-xxxx
+cve-collector run GHSA-xxxx-xxxx-xxxx
 
 # Clear caches
-cve_collector clear
+cve-collector clear
 ```
 
 ### From Python
 ```python
 from dataclasses import asdict
-from cve_collector import CVECollector
+from cve-collector import CVECollector
 
 collector = CVECollector(github_token="YOUR_GITHUB_TOKEN")
 
