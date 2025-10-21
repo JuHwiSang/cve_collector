@@ -49,7 +49,6 @@ src/cve_collector/
       enrich_port.py       # 취약점 상세 보강 포트 (GitHub 등)
       dump_port.py         # 원본(raw) JSON 제공 포트 (dump)
       cache_port.py        # 캐시 포트 (get/set/clear/TTL)
-      rate_limiter_port.py # 레이트리미터 포트 (선택)
       clock_port.py        # 시계/시간 포트 (테스트 용이성)
     usecases/
       list_vulnerabilities.py   # 전체 리스트 가져오기 (스켈레톤 혹은 경량 보강)
@@ -62,7 +61,6 @@ src/cve_collector/
     github_enrichment.py   # GitHub GraphQL/REST 어댑터 (references→patch/PoC 추출)
     cache_diskcache.py     # diskcache 구현체
     http_client.py         # HTTP 클라이언트 + 타임아웃. JSON object 강제.
-    rate_limiter.py        # 레이트 리미터(토큰버킷/단순 슬리프)
 
   shared/
     logging.py             # 로거 팩토리
@@ -294,12 +292,6 @@ class CachePort(Protocol):
     def set(self, key: str, value: bytes, ttl_seconds: int | None = None) -> None: ...
     def clear(self, prefix: str | None = None) -> None: ...
     def iter_keys(self, prefix: str) -> Iterable[str]: ...
-
-
-class RateLimiterPort(Protocol):
-    def acquire(self) -> None: ...  # 간단한 동기 API (필요시 컨텍스트/async 버전 추가)
-```
-
 컴포지트 보강기(Composite Enricher)를 통해 여러 보강기를 순차 적용할 수 있다.
 
 ```python
@@ -490,29 +482,7 @@ class ClearCacheUseCase:
 - HTTP Client (`infra/http_client.py`)
   - 역할: 세션 재사용, 타임아웃. 응답코드 비정상이면 즉시 예외. JSON은 object만 허용.
   - 리다이렉트: `follow_redirects=True` (301/302 등 자동 추적), `max_redirects=10` (무한 루프 방지)
-  - Rate Limiting: 선택적으로 `RateLimiterPort`를 주입받아 모든 HTTP 요청 전에 `acquire()` 호출
   - **사용처**: OSV API 전용 (GitHub API는 PyGithub 사용)
-
-- Rate Limiter (`infra/rate_limiter.py`)
-  - **SimpleRateLimiter**: 간격 기반 (RPS 제한)
-    - 요청 간 최소 간격 강제 (`1/rps` 초)
-    - 단순하지만 버스트 처리 비효율적
-    - 메모리만 사용 (프로세스 종료 시 상태 손실)
-  - **SlidingWindowRateLimiter**: 시간 윈도우 기반 (권장)
-    - 메모리 기반: `deque`로 요청 타임스탬프 추적
-    - 영구 저장 (선택): `CachePort` + `namespace` 주입 시 캐시에 타임스탬프 저장
-      - 키 패턴: `rate_limit:{namespace}:{timestamp}`
-      - 프로세스 간 rate limit 공유 가능 (같은 namespace 사용 시)
-      - TTL: 윈도우 시간 + 60초 (자동 만료)
-    - 윈도우 내 최대 요청 수 제한 (예: 1시간에 4500개)
-    - 장점: 버스트 허용, GitHub API 같은 시간 기반 제한에 정확히 대응
-    - 사용 예 (메모리만): `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0)`
-    - 사용 예 (영구 저장): `SlidingWindowRateLimiter(max_requests=4500, window_seconds=3600.0, cache=cache_port, namespace="gh_token_hash")`
-    - Container 구성:
-      - GitHub API용으로 4500/hour 설정 (5000/hour 공식 한도에서 안전 마진 500)
-      - GitHub 토큰을 SHA3-256 해싱 후 앞 12자를 namespace로 사용 (`config/token_utils.py`)
-      - 토큰이 없으면 namespace=None으로 메모리만 사용
-      - 기존 cache 리소스를 공유 사용 (rate_limit prefix로 자연스럽게 분리)
 
 ## CLI (app/cli.py)
 
@@ -626,13 +596,11 @@ from github import Auth, Github
 
 from cve_collector.config.loader import load_config
 from cve_collector.config.types import AppConfig
-from cve_collector.config.token_utils import hash_token_for_namespace
 from cve_collector.core.services.composite_enricher import CompositeEnricher
 from cve_collector.core.usecases import list_vulnerabilities, detail_vulnerability, clear_cache
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubRepoEnricher
 from cve_collector.infra.osv_adapter import OSVAdapter
-from cve_collector.infra.rate_limiter import SlidingWindowRateLimiter
 from cve_collector.infra.http_client import HttpClient
 
 
@@ -655,13 +623,6 @@ def github_client_resource(app_cfg: AppConfig):
     client.close()
 
 
-def create_github_rate_limiter_namespace(app_cfg: AppConfig) -> str | None:
-  """GitHub 토큰 해시 기반 namespace 생성 (프로세스 간 rate limit 공유)"""
-  if not app_cfg.github_token:
-    return None
-  return hash_token_for_namespace(app_cfg.github_token, prefix_length=12)
-
-
 class Container(containers.DeclarativeContainer):
   config = providers.Configuration()
 
@@ -670,16 +631,6 @@ class Container(containers.DeclarativeContainer):
 
   # PyGithub 클라이언트 (인증 + 리소스 관리)
   github_client = providers.Resource(github_client_resource, app_config)
-
-  # GitHub rate limiter (4500/hour, 캐시 기반 영구 저장 + namespace)
-  github_rate_limiter_namespace = providers.Callable(create_github_rate_limiter_namespace, app_config)
-  rate_limiter = providers.Factory(
-    SlidingWindowRateLimiter,
-    max_requests=4500,
-    window_seconds=3600.0,
-    cache=cache,
-    namespace=github_rate_limiter_namespace,
-  )
 
   # HTTP 클라이언트 (OSV API 전용)
   http_client = providers.Factory(HttpClient)
@@ -717,7 +668,7 @@ class Container(containers.DeclarativeContainer):
 - 동시성: 초기엔 동기 구현 후, 대용량 처리 시 `ThreadPoolExecutor`로 보강(Enricher의 `enrich_many`).
 - 에러 처리:
   - 404/Null: 존재하지 않는 GHSA는 None 처리, CLI는 친절한 메시지 출력
-  - 403 Rate Limit: GitHub API rate limit 초과 시 즉시 예외 발생 (message에 "rate limit" 포함 시). 캐시하지 않음.
+  - Rate Limit: PyGithub가 `RateLimitExceededException` 자동 발생. 즉시 예외 re-raise, 캐시하지 않음.
   - 403 Access Denied: 일반 403 (access denied)은 negative cache 처리 (1일 TTL)
   - 네트워크: 타임아웃/재시도(지수 백오프) 기본 적용
 
@@ -739,7 +690,7 @@ class Container(containers.DeclarativeContainer):
 
 1. shared/core 뼈대 생성: `domain.models`, `ports`, `usecases`
 2. infra 최소 구현: `OSVIndexAdapter`(로컬 파일/한정된 API) → `GitHubRepoEnricher`
-3. cache/http/rate_limiter 어댑터 도입 및 DI 연결
+3. cache/http 어댑터 도입 및 DI 연결
 4. app/cli 구현: `list`, `show`, `cache clear` 명령
 5. 테스트 정비(pyproject의 optional deps 활용), 출력 포맷팅 개선, 동시성 최적화, 캐시 전략 튜닝
 
