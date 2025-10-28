@@ -15,10 +15,11 @@ This document provides comprehensive context for AI assistants working on the cv
 
 ```
 src/cve_collector/
-  api.py                    # Public library API (list_vulnerabilities, detail, dump, clear_cache, ingest)
+  __init__.py               # Package exports (CveCollectorClient, AppConfig)
   app/
+    api.py                  # Public library API (CveCollectorClient class)
     cli.py                  # Typer-based CLI entry point
-    container.py            # DI container (dependency-injector)
+    container.py            # DI container (dependency-injector with Pydantic settings)
   core/
     domain/
       models.py             # Immutable domain models (Vulnerability, Repository, Commit)
@@ -38,7 +39,7 @@ src/cve_collector/
       clear_cache.py
   infra/
     osv_adapter.py          # OSV API adapter (IndexPort + EnrichmentPort)
-    github_enrichment.py    # GitHub API enricher (PyGithub-based)
+    github_enrichment.py    # GitHub API enricher (PyGithub-based, accepts individual TTL params)
     cache_diskcache.py      # Disk cache implementation (diskcache)
     http_client.py          # HTTP client (httpx, for OSV API)
   shared/
@@ -46,10 +47,9 @@ src/cve_collector/
     filter_utils.py         # Expression-based filtering (asteval)
     utils.py                # Utility functions (URL parsing, size formatting, PoC detection)
   config/
-    types.py                # Configuration types (AppConfig)
-    loader.py               # Environment loader
+    settings.py             # Pydantic BaseSettings configuration (AppConfig)
     urls.py                 # API URL builders
-    token_utils.py          # Token hashing utilities
+    tokens.py               # Token hashing utilities
 ```
 
 ## Key Design Principles
@@ -246,14 +246,72 @@ Options:
 
 ## Library API
 
-### list_vulnerabilities()
+### CveCollectorClient Class
+
+The library API is now class-based instead of function-based. This provides better resource management and allows configuration to be set once per client instance.
+
+**Location**: `src/cve_collector/app/api.py`
+
+**Exports**: `src/cve_collector/__init__.py` exports `CveCollectorClient` and `AppConfig`
+
+### Constructor
+
+```python
+class CveCollectorClient:
+    def __init__(
+        self,
+        *,
+        github_token: str | None = None,
+        cache_dir: str | Path | None = None,
+        github_cache_ttl_days: int | None = None,
+        osv_cache_ttl_days: int | None = None,
+    ):
+        """Initialize the CVE Collector client.
+
+        Args:
+            github_token: Optional GitHub token. If None, uses environment variable.
+            cache_dir: Optional custom cache directory.
+            github_cache_ttl_days: Optional TTL for GitHub cache (days).
+            osv_cache_ttl_days: Optional TTL for OSV cache (days).
+
+        All parameters are optional. Unspecified values fall back to environment variables
+        or default values from AppConfig.
+        """
+```
+
+### Usage Pattern
+
+```python
+from cve_collector import CveCollectorClient
+
+# Basic usage with context manager (recommended)
+with CveCollectorClient() as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm", limit=10)
+    detail = client.detail("GHSA-xxxx-xxxx-xxxx")
+
+# With custom settings
+with CveCollectorClient(github_token="ghp_xxx", cache_dir="/tmp/cache") as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm", detailed=True)
+
+# Without context manager (must call close())
+client = CveCollectorClient(github_token="ghp_xxx")
+try:
+    vulns = client.list_vulnerabilities(ecosystem="npm")
+finally:
+    client.close()
+```
+
+### Methods
+
+#### list_vulnerabilities()
 ```python
 def list_vulnerabilities(
+    self,
     *,
     ecosystem: str | None = None,
     limit: int | None = None,
     detailed: bool = False,
-    filter_expr: str | None = None
+    filter_expr: str | None = None,
 ) -> Sequence[Vulnerability]:
     """Return a list of vulnerabilities.
 
@@ -271,27 +329,27 @@ def list_vulnerabilities(
     """
 ```
 
-### detail()
+#### detail()
 ```python
-def detail(id: str) -> Vulnerability | None:
+def detail(self, id: str) -> Vulnerability | None:
     """Return a single detailed vulnerability by ID (GHSA-... or CVE-...)."""
 ```
 
-### dump()
+#### dump()
 ```python
-def dump(id: str) -> list[dict]:
+def dump(self, id: str) -> list[dict]:
     """Return raw JSON payloads for the ID across configured providers."""
 ```
 
-### clear_cache()
+#### clear_cache()
 ```python
-def clear_cache(prefix: str | None = None) -> None:
+def clear_cache(self, prefix: str | None = None) -> None:
     """Clear caches. Without prefix, clears all. With prefix, clears only matching keys."""
 ```
 
-### ingest()
+#### ingest()
 ```python
-def ingest(ecosystems: Sequence[str], *, force: bool = False) -> dict[str, int]:
+def ingest(self, ecosystems: Sequence[str], *, force: bool = False) -> dict[str, int]:
     """Ingest vulnerability data for specified ecosystems.
 
     Args:
@@ -301,6 +359,15 @@ def ingest(ecosystems: Sequence[str], *, force: bool = False) -> dict[str, int]:
     Returns:
         Dictionary mapping ecosystem names to number of entries ingested.
         Example: {'npm': 1234, 'pypi': 567}
+    """
+```
+
+#### close()
+```python
+def close(self) -> None:
+    """Close the client and release resources.
+
+    This method is automatically called when using context manager (with statement).
     """
 ```
 
@@ -341,42 +408,126 @@ def ingest(ecosystems: Sequence[str], *, force: bool = False) -> dict[str, int]:
 
 ## Configuration
 
+### Pydantic BaseSettings Configuration
+
+Configuration is managed via Pydantic `BaseSettings` for automatic environment variable loading and validation.
+
+**Location**: `src/cve_collector/config/settings.py`
+
 ### Environment Variables
+
+All settings use the `CVE_COLLECTOR_` prefix:
+
 ```bash
-GITHUB_TOKEN=ghp_...        # Required for authenticated GitHub API access
-CVE_COLLECTOR_CACHE_DIR=... # Optional: custom cache directory
+CVE_COLLECTOR_GITHUB_TOKEN=ghp_...        # GitHub token for authenticated API access
+CVE_COLLECTOR_CACHE_DIR=/path/to/cache    # Custom cache directory (optional)
+CVE_COLLECTOR_GITHUB_CACHE_TTL_DAYS=30    # GitHub repo metadata cache TTL (default: 30)
+CVE_COLLECTOR_OSV_CACHE_TTL_DAYS=7        # OSV vulnerability data cache TTL (default: 7)
 ```
 
 ### .env File Support
-- CLI automatically loads `.env` from working directory
-- Uses `python-dotenv`
+- CLI automatically loads `.env` from working directory using `python-dotenv`
 - Loaded in `cli.py:main()` before container initialization
+- Pydantic BaseSettings also supports `.env` file loading automatically
 
-### AppConfig
+### AppConfig (Pydantic BaseSettings)
+
 ```python
-@dataclass(frozen=True)
-class AppConfig:
-    github_token: str | None
-    cache_dir: Path | None  # None = use platformdirs default
-    github_cache_ttl_days: int = 30
-    osv_cache_ttl_days: int = 7
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class AppConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="CVE_COLLECTOR_",
+        case_sensitive=False,
+        extra="forbid",
+    )
+
+    github_token: Optional[str] = Field(
+        default=None,
+        description="GitHub personal access token"
+    )
+
+    cache_dir: Optional[Path] = Field(
+        default=None,
+        description="Custom cache directory path"
+    )
+
+    github_cache_ttl_days: int = Field(
+        default=30,
+        ge=1,
+        description="TTL for GitHub repo metadata cache (days)"
+    )
+
+    osv_cache_ttl_days: int = Field(
+        default=7,
+        ge=1,
+        description="TTL for OSV vulnerability data cache (days)"
+    )
+```
+
+### Usage
+
+**CLI**: Configuration is automatically loaded from environment variables and `.env` file.
+
+**Library**: Can override settings per-client instance:
+
+```python
+from cve_collector import CveCollectorClient
+
+# Use defaults (from environment)
+with CveCollectorClient() as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm")
+
+# Override specific settings
+with CveCollectorClient(
+    github_token="ghp_xxx",
+    cache_dir="/tmp/cache",
+    github_cache_ttl_days=60
+) as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm")
 ```
 
 ## Dependency Injection
 
-### Container Structure
+### Container Structure with Pydantic Configuration
+
+The container uses `providers.Configuration(pydantic_settings=[AppConfig()])` to integrate Pydantic BaseSettings with dependency-injector. This allows automatic environment variable loading and clean dependency injection.
+
 ```python
 class Container(containers.DeclarativeContainer):
-    app_config = providers.Callable(load_config)
-    cache = providers.Resource(cache_resource, app_config)
-    github_client = providers.Resource(github_client_resource, app_config)
+    # Pydantic configuration integration
+    config = providers.Configuration(pydantic_settings=[AppConfig()])
+
+    # Resources receive individual config values (not the whole AppConfig object)
+    cache = providers.Resource(
+        cache_resource,
+        cache_dir=config.cache_dir,
+        github_cache_ttl_days=config.github_cache_ttl_days,
+    )
+
+    github_client = providers.Resource(
+        github_client_resource,
+        github_token=config.github_token,
+    )
+
     http_client = providers.Factory(HttpClient)
 
     index = providers.Factory(OSVAdapter, cache=cache, http_client=http_client)
 
     enrichers = providers.List(
         providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
-        providers.Factory(GitHubRepoEnricher, cache=cache, github_client=github_client, app_config=app_config),
+        providers.Factory(
+            GitHubRepoEnricher,
+            cache=cache,
+            github_client=github_client,
+            github_cache_ttl_days=config.github_cache_ttl_days,
+            osv_cache_ttl_days=config.osv_cache_ttl_days,
+        ),
+    )
+
+    dump_providers = providers.List(
+        providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
     )
 
     composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
@@ -386,6 +537,13 @@ class Container(containers.DeclarativeContainer):
     dump_uc = providers.Factory(RawDumpUseCase, providers=dump_providers)
     clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)
 ```
+
+### Key Points
+
+1. **Pydantic Integration**: `providers.Configuration(pydantic_settings=[AppConfig()])` loads settings from environment variables automatically
+2. **Individual Parameters**: Resources/factories receive specific config values (e.g., `github_token`) rather than entire config objects
+3. **Clean Dependencies**: Each component only knows about the settings it needs
+4. **Override Support**: `container.config.from_pydantic(custom_config)` allows runtime configuration override
 
 ### Resource Management
 - `cache`: Context manager, auto-closes
@@ -579,7 +737,28 @@ export CVE_COLLECTOR_CACHE_DIR=/tmp/test-cache
 
 ## Breaking Changes History
 
-### v0.5.2 (Current)
+### v0.5.3 (Current - 2025-10-28)
+- **BREAKING: Class-based API**: Complete refactor from function-based to class-based API
+  - Old: `from cve_collector import list_vulnerabilities, detail, dump, clear_cache`
+  - New: `from cve_collector import CveCollectorClient`
+  - Migration: Wrap function calls in `with CveCollectorClient() as client:` context manager
+- **Configuration system overhaul**: Pydantic BaseSettings integration
+  - Environment variables now use `CVE_COLLECTOR_` prefix (was `GITHUB_TOKEN`, now `CVE_COLLECTOR_GITHUB_TOKEN`)
+  - Configuration in `config/settings.py` (was `config/types.py` + `config/loader.py`)
+  - Container uses `providers.Configuration(pydantic_settings=[AppConfig()])` for automatic env loading
+- **File structure changes**:
+  - Moved `api.py` from `src/` to `app/api.py`
+  - Renamed `config/token_utils.py` to `config/tokens.py`
+  - Deleted `config/constants.py`, `config/types.py`, `config/loader.py`
+- **Dependency injection improvements**:
+  - Resources/factories receive individual config values instead of entire AppConfig object
+  - `GitHubRepoEnricher.__init__` signature changed: accepts `github_cache_ttl_days` and `osv_cache_ttl_days` instead of `app_config`
+- **CveCollectorClient constructor**: Accepts individual parameters (pythonic)
+  - `github_token`, `cache_dir`, `github_cache_ttl_days`, `osv_cache_ttl_days`
+  - All parameters optional, falls back to environment variables
+  - Example: `CveCollectorClient(github_token="ghp_xxx", cache_dir="/tmp")`
+
+### v0.5.2
 - **API parity with CLI**: Added missing parameters to library API
   - `list_vulnerabilities()`: Added `filter_expr` parameter, made `ecosystem` optional (can be `None` to list all)
   - Added `ingest()` function to library API
@@ -651,5 +830,5 @@ When contributing:
 ---
 
 **Last Updated**: 2025-10-28
-**Document Version**: 1.1.0
-**Project Version**: v0.5.2
+**Document Version**: 1.2.0
+**Project Version**: v0.5.3 (unreleased)

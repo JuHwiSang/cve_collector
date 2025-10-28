@@ -22,23 +22,56 @@ pip install git+https://github.com/JuHwiSang/cve_collector
 
 ## Configuration
 
-Set your GitHub token as an environment variable:
+### Environment Variables
+
+All configuration can be set via environment variables with the `CVE_COLLECTOR_` prefix:
 
 ```bash
 # bash/zsh
-export GITHUB_TOKEN=YOUR_GITHUB_TOKEN
+export CVE_COLLECTOR_GITHUB_TOKEN=YOUR_GITHUB_TOKEN
+export CVE_COLLECTOR_CACHE_DIR=/path/to/cache
+export CVE_COLLECTOR_GITHUB_CACHE_TTL_DAYS=30
+export CVE_COLLECTOR_OSV_CACHE_TTL_DAYS=7
 
 # PowerShell (persist for future sessions)
-setx GITHUB_TOKEN "YOUR_GITHUB_TOKEN"
+setx CVE_COLLECTOR_GITHUB_TOKEN "YOUR_GITHUB_TOKEN"
 
 # PowerShell (current session only)
-$env:GITHUB_TOKEN="YOUR_GITHUB_TOKEN"
+$env:CVE_COLLECTOR_GITHUB_TOKEN="YOUR_GITHUB_TOKEN"
 ```
 
 Or create a `.env` file in the working directory:
 
 ```bash
-GITHUB_TOKEN=YOUR_GITHUB_TOKEN
+CVE_COLLECTOR_GITHUB_TOKEN=YOUR_GITHUB_TOKEN
+CVE_COLLECTOR_CACHE_DIR=/custom/cache
+CVE_COLLECTOR_GITHUB_CACHE_TTL_DAYS=30
+CVE_COLLECTOR_OSV_CACHE_TTL_DAYS=7
+```
+
+### Available Settings
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `CVE_COLLECTOR_GITHUB_TOKEN` | str | None | GitHub personal access token (increases rate limit from 60/hour to 5000/hour) |
+| `CVE_COLLECTOR_CACHE_DIR` | Path | User cache dir | Custom cache directory path |
+| `CVE_COLLECTOR_GITHUB_CACHE_TTL_DAYS` | int | 30 | TTL for GitHub repository metadata cache (days) |
+| `CVE_COLLECTOR_OSV_CACHE_TTL_DAYS` | int | 7 | TTL for OSV vulnerability data cache (days) |
+
+### Programmatic Configuration
+
+When using the Python library, you can override settings per-client:
+
+```python
+from cve_collector import CveCollectorClient
+
+# Override specific settings
+with CveCollectorClient(
+    github_token="ghp_xxx",
+    cache_dir="/tmp/my-cache",
+    github_cache_ttl_days=60
+) as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm")
 ```
 
 ## CLI Usage
@@ -99,36 +132,51 @@ cve-collector clear gh_repo
 ## Python Library API
 
 ```python
-from cve_collector import list_vulnerabilities, detail, dump, clear_cache
+from cve_collector import CveCollectorClient
 
-# List vulnerabilities (returns domain objects)
-items = list_vulnerabilities(ecosystem="npm", limit=50, detailed=True)
+# Using context manager with defaults (from environment variables)
+with CveCollectorClient() as client:
+    # List vulnerabilities (returns domain objects)
+    items = client.list_vulnerabilities(ecosystem="npm", limit=50, detailed=True)
 
-# Filter with expressions
-filtered = list_vulnerabilities(
-    ecosystem="pypi",
-    detailed=True,
-    filter_expr='severity == "HIGH" and stars > 1000',
-    limit=20
-)
+    # Filter with expressions
+    filtered = client.list_vulnerabilities(
+        ecosystem="pypi",
+        detailed=True,
+        filter_expr='severity == "HIGH" and stars > 1000',
+        limit=20
+    )
 
-# Get single vulnerability detail (by GHSA or CVE ID)
-vuln = detail("GHSA-2234-fmw7-43wr")
-if vuln:
-    print(f"{vuln.ghsa_id}: {vuln.summary}")
-    print(f"Severity: {vuln.severity}")
-    for repo in vuln.repositories:
-        print(f"  Repo: {repo.slug} ({repo.star_count} stars)")
+    # Get single vulnerability detail (by GHSA or CVE ID)
+    vuln = client.detail("GHSA-2234-fmw7-43wr")
+    if vuln:
+        print(f"{vuln.ghsa_id}: {vuln.summary}")
+        print(f"Severity: {vuln.severity}")
+        for repo in vuln.repositories:
+            print(f"  Repo: {repo.slug} ({repo.star_count} stars)")
 
-# Get raw JSON from all providers
-payloads = dump("GHSA-2234-fmw7-43wr")
-for payload in payloads:
-    print(payload)
+    # Get raw JSON from all providers
+    payloads = client.dump("GHSA-2234-fmw7-43wr")
+    for payload in payloads:
+        print(payload)
 
-# Clear cache
-clear_cache()           # All cache
-clear_cache("osv")      # OSV data only
-clear_cache("gh_repo")  # GitHub repo metadata only
+    # Clear cache
+    client.clear_cache()           # All cache
+    client.clear_cache("osv")      # OSV data only
+    client.clear_cache("gh_repo")  # GitHub repo metadata only
+
+# Override GitHub token
+with CveCollectorClient(github_token="ghp_xxx") as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm", detailed=True)
+
+# Override multiple settings
+with CveCollectorClient(
+    github_token="ghp_xxx",
+    cache_dir="/custom/cache",
+    github_cache_ttl_days=60,
+    osv_cache_ttl_days=14
+) as client:
+    vulns = client.list_vulnerabilities(ecosystem="npm", detailed=True)
 ```
 
 ## Filter Expression Syntax
