@@ -44,6 +44,7 @@ src/cve_collector/
   shared/
     logging.py              # Logging utilities
     filter_utils.py         # Expression-based filtering (asteval)
+    utils.py                # Utility functions (URL parsing, size formatting, PoC detection)
   config/
     types.py                # Configuration types (AppConfig)
     loader.py               # Environment loader
@@ -474,6 +475,19 @@ return repo.raw_data  # Dict with all fields
 return {"stars": repo.stargazers_count, "size": repo.size}
 ```
 
+### 7. Utility Functions Should Be Pure
+```python
+# CORRECT - pure utility, caller handles None
+from shared.utils import format_size
+size_str = format_size(size_bytes) if size_bytes is not None else "-"
+
+# WRONG - utility handling business logic
+def format_size(size_bytes: int | None) -> str:
+    if size_bytes is None:
+        return "-"  # Presentation logic in utility
+    ...
+```
+
 ## Development Workflow
 
 ### Adding a New Enricher
@@ -494,6 +508,13 @@ return {"stars": repo.stargazers_count, "size": repo.size}
 4. Add corresponding function to `api.py` for library users
 5. Update CLAUDE.md with both CLI and API usage
 6. Add to README
+
+### Adding Utility Functions
+1. Add pure utility functions to `shared/utils.py`
+2. Keep utilities focused on single responsibility (no None/business logic handling)
+3. Add comprehensive docstrings with examples
+4. Presentation logic (None handling, formatting) stays in caller (e.g., `cli.py`)
+5. Add tests in `tests/shared/`
 
 ### Modifying Domain Models
 1. Update model in `core/domain/models.py`
@@ -562,6 +583,9 @@ export CVE_COLLECTOR_CACHE_DIR=/tmp/test-cache
 - **API parity with CLI**: Added missing parameters to library API
   - `list_vulnerabilities()`: Added `filter_expr` parameter, made `ecosystem` optional (can be `None` to list all)
   - Added `ingest()` function to library API
+- **Refactored utilities**: Moved `format_size()` to `shared/utils.py`
+  - Changed signature to accept only `int` (not `int | None`)
+  - None handling moved to callers (separation of concerns)
 - All CLI commands now have equivalent library API functions
 
 ### v0.5.0
