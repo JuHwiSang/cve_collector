@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cve_collector.config.token_utils import hash_token_for_namespace
+from cve_collector.config.tokens import hash_token_for_namespace
 
 
 def test_hash_token_for_namespace_returns_consistent_hash():
