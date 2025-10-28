@@ -4,7 +4,6 @@ import logging
 
 from github import Github, GithubException, RateLimitExceededException
 
-from ..config.types import AppConfig
 from ..core.domain.models import Repository, Vulnerability
 from ..core.ports.cache_port import CachePort
 from ..core.ports.dump_port import DumpProviderPort
@@ -21,10 +20,11 @@ _ERROR_TTL_SECONDS = 24 * 3600  # Cache errors for 1 day (shorter than normal ca
 
 
 class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
-    def __init__(self, cache: CachePort, github_client: Github, app_config: AppConfig) -> None:
+    def __init__(self, cache: CachePort, github_client: Github, github_cache_ttl_days: int, osv_cache_ttl_days: int) -> None:
         self._cache = cache
         self._github = github_client
-        self._cfg = app_config
+        self._github_cache_ttl_days = github_cache_ttl_days
+        self._osv_cache_ttl_days = osv_cache_ttl_days
 
     def enrich(self, v: Vulnerability) -> Vulnerability:
         """Augment GitHub-specific repository metadata only (e.g., star_count).
@@ -109,7 +109,7 @@ class GitHubRepoEnricher(VulnerabilityEnrichmentPort, DumpProviderPort):
             repo = self._github.get_repo(f"{owner}/{name}")
             data = repo.raw_data
 
-            ttl_seconds = int(self._cfg.github_cache_ttl_days) * 24 * 3600
+            ttl_seconds = int(self._github_cache_ttl_days) * 24 * 3600
             self._cache.set_json(key, data, ttl_seconds=ttl_seconds)
             logger.info("Successfully fetched and cached %s/%s", owner, name)
             return data

@@ -14,26 +14,25 @@ from ..infra.cache_diskcache import DiskCacheAdapter
 from ..infra.github_enrichment import GitHubRepoEnricher
 from ..infra.osv_adapter import OSVAdapter
 from ..infra.http_client import HttpClient
-from ..config.loader import load_config
-from ..config.types import AppConfig
+from ..config.settings import AppConfig
 
 logger = logging.getLogger(__name__)
 
 
-def cache_resource(app_cfg: AppConfig):
-	cache_dir = app_cfg.cache_dir
-	logger.info(f"Initializing cache at: {cache_dir or 'default user cache directory'}")
+def cache_resource(cache_dir, github_cache_ttl_days):
+	cache_dir_str = str(cache_dir) if cache_dir else None
+	logger.info(f"Initializing cache at: {cache_dir_str or 'default user cache directory'}")
 	with DiskCacheAdapter(
 		namespace="github",
-		default_ttl_seconds=30 * 24 * 3600,
-		base_dir=cache_dir,
+		default_ttl_seconds=github_cache_ttl_days * 24 * 3600,
+		base_dir=cache_dir_str,
 	) as cache:
 		logger.debug("Cache initialized successfully")
 		yield cache
 	logger.debug("Cache closed")
 
 
-def github_client_resource(app_cfg: AppConfig):
+def github_client_resource(github_token):
 	"""Create PyGithub client as a resource with proper cleanup.
 
 	Returns authenticated client if token is available, otherwise anonymous client.
@@ -41,11 +40,11 @@ def github_client_resource(app_cfg: AppConfig):
 	logger.info("Initializing GitHub client")
 
 	# Debug: Log token status
-	if app_cfg.github_token:
-		token_preview = f"{app_cfg.github_token[:8]}..." if len(app_cfg.github_token) > 8 else "***"
-		logger.info(f"GitHub token found: {token_preview} (length: {len(app_cfg.github_token)})")
+	if github_token:
+		token_preview = f"{github_token[:8]}..." if len(github_token) > 8 else "***"
+		logger.info(f"GitHub token found: {token_preview} (length: {len(github_token)})")
 		logger.debug("Creating authenticated GitHub client")
-		auth = Auth.Token(app_cfg.github_token)
+		auth = Auth.Token(github_token)
 		client = Github(auth=auth)
 	else:
 		logger.warning("No GitHub token configured - using anonymous client (rate limit: 60/hour)")
@@ -71,14 +70,19 @@ def github_client_resource(app_cfg: AppConfig):
 
 
 class Container(containers.DeclarativeContainer):
-	config = providers.Configuration()
+	config = providers.Configuration(pydantic_settings=[AppConfig()])
 
-	app_config = providers.Callable(load_config)
-
-	cache = providers.Resource(cache_resource, app_config)
+	cache = providers.Resource(
+		cache_resource,
+		cache_dir=config.cache_dir,
+		github_cache_ttl_days=config.github_cache_ttl_days,
+	)
 
 	# GitHub client with authentication and proper cleanup
-	github_client = providers.Resource(github_client_resource, app_config)
+	github_client = providers.Resource(
+		github_client_resource,
+		github_token=config.github_token,
+	)
 
 	# Basic HTTP client for non-GitHub APIs (e.g., OSV)
 	http_client = providers.Factory(HttpClient)
@@ -87,7 +91,13 @@ class Container(containers.DeclarativeContainer):
 
 	enrichers = providers.List(
 		providers.Factory(OSVAdapter, cache=cache, http_client=http_client),
-		providers.Factory(GitHubRepoEnricher, cache=cache, github_client=github_client, app_config=app_config),
+		providers.Factory(
+			GitHubRepoEnricher,
+			cache=cache,
+			github_client=github_client,
+			github_cache_ttl_days=config.github_cache_ttl_days,
+			osv_cache_ttl_days=config.osv_cache_ttl_days,
+		),
 	)
 
 	dump_providers = providers.List(

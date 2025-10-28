@@ -181,10 +181,15 @@ def dump(id: str = typer.Argument(..., help="Identifier (GHSA-... or CVE-... as 
 
 
 def main() -> None:
-    """Entry point for the CLI application."""
-    
+    """Entry point for the CLI application.
+
+    Configuration is loaded automatically via Pydantic BaseSettings from:
+    1. Environment variables (CVE_COLLECTOR_* prefix)
+    2. .env file (if present)
+    """
+
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
-    
+
     logger.info("CVE Collector starting")
 
     try:

@@ -7,7 +7,6 @@ from unittest.mock import Mock
 import pytest
 from github import GithubException, RateLimitExceededException, UnknownObjectException
 
-from cve_collector.config.types import AppConfig
 from cve_collector.core.domain.models import Vulnerability, Repository
 from cve_collector.infra.cache_diskcache import DiskCacheAdapter
 from cve_collector.infra.github_enrichment import GitHubRepoEnricher, _ERROR_MARKER_PREFIX
@@ -38,7 +37,8 @@ def test_github_repo_enricher_sets_stars_from_http_when_cache_empty():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(ghsa_id="GHSA-1", repositories=(Repository.from_github("owner", "name", ecosystem="npm"),))
             out = enricher.enrich(v)
@@ -59,7 +59,8 @@ def test_github_repo_enricher_uses_cache_if_present():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(ghsa_id="GHSA-42", repositories=(Repository.from_github("owner", "name", ecosystem="pypi"),))
             out = enricher.enrich(v)
@@ -81,7 +82,8 @@ def test_github_repo_enricher_handles_404_and_caches_error():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(
                 ghsa_id="GHSA-404",
@@ -119,7 +121,8 @@ def test_github_repo_enricher_skips_cached_errors():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(
                 ghsa_id="GHSA-404",
@@ -151,7 +154,8 @@ def test_github_repo_enricher_raises_on_rate_limit():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(
                 ghsa_id="GHSA-RATE",
@@ -179,7 +183,8 @@ def test_github_repo_enricher_caches_403_access_denied():
             enricher = GitHubRepoEnricher(
                 cache=cache,
                 github_client=mock_client,
-                app_config=AppConfig(github_token=None, cache_dir=None, github_cache_ttl_days=30, osv_cache_ttl_days=7)
+                github_cache_ttl_days=30,
+                osv_cache_ttl_days=7,
             )
             v = Vulnerability(
                 ghsa_id="GHSA-403",
