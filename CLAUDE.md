@@ -6,7 +6,7 @@ This document provides comprehensive context for AI assistants working on the cv
 
 **cve-collector** is a Python CLI tool and library for collecting and enriching GitHub Security Advisory (GHSA) vulnerability data from multiple sources (OSV, GitHub).
 
-- **Current Version**: v0.5.0 (Alpha) - Under active development, unstable
+- **Current Version**: v0.5.2 (Alpha) - Under active development, unstable
 - **Architecture**: Clean layered architecture (app/core/infra/shared/config) with dependency injection
 - **Language**: Python 3.13+
 - **Key Dependencies**: PyGithub, httpx, diskcache, pydantic, dependency-injector, typer
@@ -15,7 +15,7 @@ This document provides comprehensive context for AI assistants working on the cv
 
 ```
 src/cve_collector/
-  api.py                    # Public library API (list_vulnerabilities, detail, dump, clear_cache)
+  api.py                    # Public library API (list_vulnerabilities, detail, dump, clear_cache, ingest)
   app/
     cli.py                  # Typer-based CLI entry point
     container.py            # DI container (dependency-injector)
@@ -232,6 +232,77 @@ Arguments:
   PREFIX  Optional cache prefix (osv, gh_repo) - clears all if omitted
 ```
 
+### ingest
+```bash
+cve-collector ingest <ECOSYSTEM>...
+
+Arguments:
+  ECOSYSTEM  One or more ecosystem names to ingest (e.g., npm, pypi, go)
+
+Options:
+  --force    Re-download and re-index even if cache exists
+```
+
+## Library API
+
+### list_vulnerabilities()
+```python
+def list_vulnerabilities(
+    *,
+    ecosystem: str | None = None,
+    limit: int | None = None,
+    detailed: bool = False,
+    filter_expr: str | None = None
+) -> Sequence[Vulnerability]:
+    """Return a list of vulnerabilities.
+
+    Args:
+        ecosystem: Ecosystem name (e.g., npm). If None, lists all ecosystems.
+        limit: Maximum number of results. If None, returns all results.
+        detailed: If True, enriches items with GitHub metadata (stars, size).
+        filter_expr: Filter expression (e.g., 'stars > 1000', 'severity == "HIGH"').
+
+    Returns:
+        List of Vulnerability objects.
+
+    Raises:
+        ValueError: If filter_expr is invalid.
+    """
+```
+
+### detail()
+```python
+def detail(id: str) -> Vulnerability | None:
+    """Return a single detailed vulnerability by ID (GHSA-... or CVE-...)."""
+```
+
+### dump()
+```python
+def dump(id: str) -> list[dict]:
+    """Return raw JSON payloads for the ID across configured providers."""
+```
+
+### clear_cache()
+```python
+def clear_cache(prefix: str | None = None) -> None:
+    """Clear caches. Without prefix, clears all. With prefix, clears only matching keys."""
+```
+
+### ingest()
+```python
+def ingest(ecosystems: Sequence[str], *, force: bool = False) -> dict[str, int]:
+    """Ingest vulnerability data for specified ecosystems.
+
+    Args:
+        ecosystems: List of ecosystem names (e.g., ['npm', 'pypi', 'go']).
+        force: If True, re-download and re-index even if cache exists.
+
+    Returns:
+        Dictionary mapping ecosystem names to number of entries ingested.
+        Example: {'npm': 1234, 'pypi': 567}
+    """
+```
+
 ## Filter Expression System
 
 ### Available Variables
@@ -420,7 +491,9 @@ return {"stars": repo.stargazers_count, "size": repo.size}
 1. Add command function in `cli.py` with `@app.command()`
 2. Create/update usecase in `core/usecases/`
 3. Wire usecase in `container.py`
-4. Add to README
+4. Add corresponding function to `api.py` for library users
+5. Update CLAUDE.md with both CLI and API usage
+6. Add to README
 
 ### Modifying Domain Models
 1. Update model in `core/domain/models.py`
@@ -485,7 +558,13 @@ export CVE_COLLECTOR_CACHE_DIR=/tmp/test-cache
 
 ## Breaking Changes History
 
-### v0.5.0 (Current)
+### v0.5.2 (Current)
+- **API parity with CLI**: Added missing parameters to library API
+  - `list_vulnerabilities()`: Added `filter_expr` parameter, made `ecosystem` optional (can be `None` to list all)
+  - Added `ingest()` function to library API
+- All CLI commands now have equivalent library API functions
+
+### v0.5.0
 - Removed custom rate limiter (now using PyGithub's built-in)
 - Removed `rate_limiter.py`, `rate_limiter_port.py`
 - Updated cache structure (removed `rate_limit:` prefix)
@@ -547,6 +626,6 @@ When contributing:
 
 ---
 
-**Last Updated**: 2025-10-27
-**Document Version**: 1.0.0
-**Project Version**: v0.5.0
+**Last Updated**: 2025-10-28
+**Document Version**: 1.1.0
+**Project Version**: v0.5.2
