@@ -8,6 +8,7 @@ import typer
 
 from .container import Container
 from ..core.domain.models import Vulnerability
+from ..shared.utils import format_size
 import json
 
 logger = logging.getLogger(__name__)
@@ -115,19 +116,6 @@ def ingest(
             typer.echo("Nothing to ingest")
 
 
-def _format_size(size_bytes: int | None) -> str:
-    """Format size in bytes to human-readable string with appropriate unit."""
-    if size_bytes is None:
-        return "-"
-
-    if size_bytes < 1024:
-        return f"{size_bytes}B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f}KB"
-    elif size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f}MB"
-    else:
-        return f"{size_bytes / (1024 * 1024 * 1024):.2f}GB"
 
 
 def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None:
@@ -145,7 +133,7 @@ def _print_list(vulns: Sequence[Vulnerability], *, detail: bool = False) -> None
             stars = v.repositories[0].star_count if v.repositories else None
             star_s = f"{stars}" if stars is not None else " -"
             size_bytes = v.repositories[0].size_bytes if v.repositories else None
-            size_s = _format_size(size_bytes)
+            size_s = format_size(size_bytes) if size_bytes is not None else "-"
             print(f"{v.ghsa_id:22} {v.cve_id or '-':17} {sev:10} {eco:8} {repo:35} {star_s:>7} {size_s:>10}")
     else:
         print(f"{'GHSA':22} {'CVE':17}")
@@ -171,8 +159,8 @@ def _print_detail(v: Vulnerability) -> None:
         for r in v.repositories:
             eco_s = f"[{r.ecosystem}] " if r.ecosystem else ""
             star_s = f" ★{r.star_count}" if r.star_count is not None else ""
-            size_s = f" ({_format_size(r.size_bytes)})" if r.size_bytes is not None else ""
-            print(f"  - {eco_s}{r.slug or '-'}{star_s}{size_s} ({r.url or '-'})")
+            size_parts = f" ({format_size(r.size_bytes)})" if r.size_bytes is not None else ""
+            print(f"  - {eco_s}{r.slug or '-'}{star_s}{size_parts} ({r.url or '-'})")
     if v.commits:
         print("Commits:")
         for c in v.commits:

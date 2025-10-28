@@ -36,3 +36,32 @@ def is_poc_url(url: str) -> bool:
     return False
 
 
+def format_size(size_bytes: int) -> str:
+    """Format size in bytes to human-readable string with appropriate unit.
+
+    Args:
+        size_bytes: Size in bytes (must be a valid integer).
+
+    Returns:
+        Human-readable size string (e.g., "1.5MB", "512KB").
+
+    Examples:
+        >>> format_size(512)
+        '512B'
+        >>> format_size(1536)
+        '1.5KB'
+        >>> format_size(1572864)
+        '1.5MB'
+        >>> format_size(1610612736)
+        '1.50GB'
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes}B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f}KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f}MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f}GB"
+
+
