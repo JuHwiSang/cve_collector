@@ -93,6 +93,7 @@ class CveCollectorClient:
         *,
         ecosystem: str | None = None,
         limit: int | None = None,
+        skip: int = 0,
         detailed: bool = False,
         filter_expr: str | None = None,
     ) -> Sequence[Vulnerability]:
@@ -103,6 +104,7 @@ class CveCollectorClient:
         Args:
             ecosystem: Ecosystem name (e.g., npm). If None, lists all ecosystems.
             limit: Maximum number of results to return. If None, returns all results.
+            skip: Number of results to skip (default: 0). Useful for pagination.
             detailed: If True, enriches items with additional metadata (GitHub stars, size, etc.).
             filter_expr: Filter expression using Python syntax.
                         Examples: 'stars > 1000', 'severity == "HIGH"', 'has_cve and stars > 500'.
@@ -121,6 +123,9 @@ class CveCollectorClient:
                 # List npm vulnerabilities
                 vulns = client.list_vulnerabilities(ecosystem="npm", limit=10)
 
+                # List with pagination (skip first 10)
+                vulns = client.list_vulnerabilities(ecosystem="npm", limit=10, skip=10)
+
                 # List with enrichment and filtering
                 vulns = client.list_vulnerabilities(
                     ecosystem="npm",
@@ -129,7 +134,7 @@ class CveCollectorClient:
                 )
         """
         uc = self._container.list_uc()
-        return uc.execute(ecosystem=ecosystem, limit=limit, detailed=detailed, filter_expr=filter_expr)
+        return uc.execute(ecosystem=ecosystem, limit=limit, skip=skip, detailed=detailed, filter_expr=filter_expr)
 
     def detail(self, id: str) -> Vulnerability | None:
         """Return a single detailed vulnerability by ID.

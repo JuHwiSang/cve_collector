@@ -38,6 +38,7 @@ def provide_container() -> Iterator[Container]:
 def list_cmd(
     ecosystem: str | None = typer.Option(None, help="Ecosystem name (e.g., npm). If not specified, lists all ecosystems."),
     limit: int = typer.Option(10, help="Limit number of results (default: 10)"),
+    skip: int = typer.Option(0, help="Skip first N results (default: 0)"),
     detail: bool = typer.Option(False, "-d", "--detail", help="Enrich and print detailed list"),
     filter: str | None = typer.Option(
         None,
@@ -49,7 +50,7 @@ def list_cmd(
     with provide_container() as container:
         uc = container.list_uc()
         try:
-            vulns = uc.execute(ecosystem=ecosystem, limit=limit, detailed=detail, filter_expr=filter)
+            vulns = uc.execute(ecosystem=ecosystem, limit=limit, skip=skip, detailed=detail, filter_expr=filter)
         except ValueError as e:
             typer.echo(f"Filter error: {e}", err=True)
             raise typer.Exit(code=1)

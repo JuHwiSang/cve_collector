@@ -21,15 +21,17 @@ class ListVulnerabilitiesUseCase:
         *,
         ecosystem: str | None = None,
         limit: int | None = None,
+        skip: int = 0,
         detailed: bool = False,
         filter_expr: str | None = None,
     ) -> Sequence[Vulnerability]:
-        logger.info(f"Listing vulnerabilities: ecosystem={ecosystem}, limit={limit}, detailed={detailed}, filter={filter_expr}")
+        logger.info(f"Listing vulnerabilities: ecosystem={ecosystem}, limit={limit}, skip={skip}, detailed={detailed}, filter={filter_expr}")
 
         # If no filter and no enrichment needed, simple pass-through
         if not filter_expr and not detailed:
             logger.debug("Fast path: no enrichment or filtering needed")
-            results = self._index.list(ecosystem=ecosystem, limit=limit)
+            results = self._index.list(ecosystem=ecosystem, limit=limit + skip if limit else None)
+            results = results[skip:]
             logger.info(f"Found {len(results)} vulnerabilities")
             return results
 
@@ -43,6 +45,7 @@ class ListVulnerabilitiesUseCase:
         target_limit = limit or float('inf')
         processed_count = 0
         skipped_count = 0
+        items_skipped = 0
 
         for item in items:
             processed_count += 1
@@ -62,6 +65,12 @@ class ListVulnerabilitiesUseCase:
                     logger.debug(f"Skipped {item.ghsa_id}: did not match filter '{filter_expr}'")
                     continue  # Skip this item
                 item = filtered[0]
+
+            # Apply skip: count valid items until we reach skip count
+            if items_skipped < skip:
+                items_skipped += 1
+                logger.debug(f"Skipping {item.ghsa_id} ({items_skipped}/{skip})")
+                continue
 
             # Add to result
             result.append(item)
