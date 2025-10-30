@@ -93,11 +93,22 @@ CLI/API
   → ListVulnerabilitiesUseCase
     → OSVAdapter.list_ids(ecosystem) [Index]
       → HTTP call to OSV API (cached 7 days)
-    → CompositeEnricher.enrich_many(skeleton_items)
-      → OSVAdapter.enrich(v) [basic GHSA data]
-      → GitHubRepoEnricher.enrich(v) [stars, size]
-    → filter_utils.filter_items(items, expr) [if filter_expr provided]
-    → return filtered/limited results
+    → Two execution paths:
+
+      Fast path (no filter, no enrichment):
+        → Apply limit+skip to index results
+        → Slice results [skip:]
+        → Return skeleton objects
+
+      Lazy path (with filter or enrichment):
+        → Fetch all skeleton items from index
+        → For each item:
+          → Apply enrichment if detailed=True
+          → Apply filter if filter_expr provided
+          → If item passes filter, increment skip counter
+          → Once skip counter reaches skip value, add to results
+          → Stop when result count reaches limit
+        → Return filtered/enriched/skipped results
 ```
 
 ### Detail Vulnerability
@@ -205,6 +216,7 @@ cve-collector list [OPTIONS]
 Options:
   --ecosystem TEXT       Filter by ecosystem (npm, pypi, go, etc.)
   --limit INTEGER        Limit results (default: 10)
+  --skip INTEGER         Skip first N results (default: 0)
   -d, --detail          Show detailed view (severity, ecosystem, repo, stars, size)
   -f, --filter TEXT     Filter expression (e.g., 'stars > 1000')
 ```
@@ -310,6 +322,7 @@ def list_vulnerabilities(
     *,
     ecosystem: str | None = None,
     limit: int | None = None,
+    skip: int = 0,
     detailed: bool = False,
     filter_expr: str | None = None,
 ) -> Sequence[Vulnerability]:
@@ -318,6 +331,7 @@ def list_vulnerabilities(
     Args:
         ecosystem: Ecosystem name (e.g., npm). If None, lists all ecosystems.
         limit: Maximum number of results. If None, returns all results.
+        skip: Number of results to skip (default: 0). Useful for pagination.
         detailed: If True, enriches items with GitHub metadata (stars, size).
         filter_expr: Filter expression (e.g., 'stars > 1000', 'severity == "HIGH"').
 
@@ -574,6 +588,7 @@ tests/
 - **GitHubRepoEnricher**: Enrichment, negative caching, rate limit handling
 - **DiskCacheAdapter**: TTL, prefix clearing, JSON serialization
 - **Filter**: Expression evaluation, type coercion, edge cases
+- **Skip parameter**: Fast path skip, lazy path skip, skip with filter/enrichment/limit combinations
 
 ## Common Pitfalls & Gotchas
 
@@ -724,20 +739,20 @@ export CVE_COLLECTOR_CACHE_DIR=/tmp/test-cache
 2. **Single-threaded enrichment** - no parallel API calls
 3. **No retry logic** - HTTP errors fail immediately (except httpx built-in)
 4. **Limited OSV ecosystem support** - depends on OSV data availability
-5. **No pagination** - list operations load all IDs into memory
+5. **Skip-based pagination only** - no cursor or page-based pagination (skip/limit only)
 6. **GitHub API rate limit shared** - multiple processes with same token share limit via PyGithub
 
 ### Future Improvements
 - Async/await for concurrent enrichment
 - Configurable retry with exponential backoff
-- Streaming/pagination for large result sets
+- Cursor-based pagination for better performance with large datasets
 - More enrichment sources (NVD, etc.)
 - Advanced filtering (regex, date ranges)
 - Export formats (JSON, CSV, SARIF)
 
 ## Breaking Changes History
 
-### v0.5.3 (Current - 2025-10-28)
+### v0.5.3 (Current - 2025-10-30)
 - **BREAKING: Class-based API**: Complete refactor from function-based to class-based API
   - Old: `from cve_collector import list_vulnerabilities, detail, dump, clear_cache`
   - New: `from cve_collector import CveCollectorClient`
@@ -757,6 +772,12 @@ export CVE_COLLECTOR_CACHE_DIR=/tmp/test-cache
   - `github_token`, `cache_dir`, `github_cache_ttl_days`, `osv_cache_ttl_days`
   - All parameters optional, falls back to environment variables
   - Example: `CveCollectorClient(github_token="ghp_xxx", cache_dir="/tmp")`
+- **NEW: Skip parameter for pagination**: Added `skip` parameter to list operations
+  - CLI: `cve-collector list --skip N` to skip first N results
+  - API: `client.list_vulnerabilities(skip=N)` (default: 0)
+  - UseCase: `ListVulnerabilitiesUseCase.execute(skip=N)`
+  - Works in both fast path (no filter/enrichment) and lazy path (with filter/enrichment)
+  - Skip is applied after filtering, so `skip=10` skips 10 filtered results, not 10 raw results
 
 ### v0.5.2
 - **API parity with CLI**: Added missing parameters to library API
@@ -829,6 +850,6 @@ When contributing:
 
 ---
 
-**Last Updated**: 2025-10-28
-**Document Version**: 1.2.0
+**Last Updated**: 2025-10-30
+**Document Version**: 1.3.0
 **Project Version**: v0.5.3 (unreleased)
