@@ -219,3 +219,103 @@ def test_lazy_enrichment_with_filter_and_limit(sample_vulnerabilities):
     assert all(v.severity == Severity.HIGH for v in result)
     # All should be enriched
     assert all(v.summary and "[enriched]" in v.summary for v in result)
+
+
+def test_skip_without_filter_and_enrichment(sample_vulnerabilities):
+    """Test skip in fast path (no filter, no enrichment)."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Skip first 2 items
+    result = uc.execute(skip=2)
+
+    assert len(result) == 2
+    assert result[0].ghsa_id == "GHSA-3"
+    assert result[1].ghsa_id == "GHSA-4"
+
+
+def test_skip_with_limit_without_filter(sample_vulnerabilities):
+    """Test skip with limit in fast path."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Skip first 1, limit 2 -> should get GHSA-2 and GHSA-3
+    result = uc.execute(skip=1, limit=2)
+
+    assert len(result) == 2
+    assert result[0].ghsa_id == "GHSA-2"
+    assert result[1].ghsa_id == "GHSA-3"
+
+
+def test_skip_exceeds_total_count(sample_vulnerabilities):
+    """Test skip when it exceeds total result count."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Skip more than available
+    result = uc.execute(skip=10)
+
+    assert len(result) == 0
+
+
+def test_skip_with_filter(sample_vulnerabilities):
+    """Test skip with filter in lazy path."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Filter npm (3 results), skip first 1
+    result = uc.execute(filter_expr='ecosystem == "npm"', skip=1)
+
+    assert len(result) == 2
+    assert result[0].ghsa_id == "GHSA-2"
+    assert result[1].ghsa_id == "GHSA-4"
+
+
+def test_skip_with_filter_and_limit(sample_vulnerabilities):
+    """Test skip with both filter and limit."""
+    index = FakeIndex(sample_vulnerabilities)
+    uc = ListVulnerabilitiesUseCase(index)
+
+    # Filter npm (3 results), skip 1, limit 1 -> should get GHSA-2
+    result = uc.execute(filter_expr='ecosystem == "npm"', skip=1, limit=1)
+
+    assert len(result) == 1
+    assert result[0].ghsa_id == "GHSA-2"
+
+
+def test_skip_with_enrichment(sample_vulnerabilities):
+    """Test skip with enrichment in lazy path."""
+    index = FakeIndex(sample_vulnerabilities)
+    enricher = FakeEnricher()
+    uc = ListVulnerabilitiesUseCase(index, enricher)
+
+    # Skip first 2 with enrichment
+    result = uc.execute(detailed=True, skip=2)
+
+    assert len(result) == 2
+    assert result[0].ghsa_id == "GHSA-3"
+    assert result[1].ghsa_id == "GHSA-4"
+    # Should be enriched
+    assert all(v.summary and "[enriched]" in v.summary for v in result)
+
+
+def test_skip_with_filter_enrichment_and_limit(sample_vulnerabilities):
+    """Test skip with filter, enrichment, and limit - full lazy path."""
+    # Create larger dataset for better testing
+    large_dataset = sample_vulnerabilities * 10  # 40 items
+
+    index = FakeIndex(large_dataset)
+    enricher = FakeEnricher()
+    uc = ListVulnerabilitiesUseCase(index, enricher)
+
+    # Filter HIGH severity (10 results), skip 3, limit 2
+    result = uc.execute(
+        detailed=True,
+        filter_expr='severity == "HIGH"',
+        skip=3,
+        limit=2
+    )
+
+    assert len(result) == 2
+    assert all(v.severity == Severity.HIGH for v in result)
+    assert all(v.summary and "[enriched]" in v.summary for v in result)
