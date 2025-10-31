@@ -8,6 +8,7 @@ from github import Auth, Github
 from ..core.services.composite_enricher import CompositeEnricher
 from ..core.usecases.clear_cache import ClearCacheUseCase
 from ..core.usecases.list_vulnerabilities import ListVulnerabilitiesUseCase
+from ..core.usecases.list_vulnerabilities_iter import ListVulnerabilitiesIterUseCase
 from ..core.usecases.detail_vulnerability import DetailVulnerabilityUseCase
 from ..core.usecases.raw_dump import RawDumpUseCase
 from ..infra.cache_diskcache import DiskCacheAdapter
@@ -107,6 +108,7 @@ class Container(containers.DeclarativeContainer):
 	composite_enricher = providers.Factory(CompositeEnricher, enrichers=enrichers)
 
 	list_uc = providers.Factory(ListVulnerabilitiesUseCase, index=index, enricher=composite_enricher)
+	list_iter_uc = providers.Factory(ListVulnerabilitiesIterUseCase, index=index, enricher=composite_enricher)
 	detail_uc = providers.Factory(DetailVulnerabilityUseCase, index=index, enricher=composite_enricher)
 	dump_uc = providers.Factory(RawDumpUseCase, providers=dump_providers)
 	clear_cache_uc = providers.Factory(ClearCacheUseCase, cache=cache)

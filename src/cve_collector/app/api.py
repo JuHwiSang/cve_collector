@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Iterator, Sequence
 
 from .container import Container
 from ..config.settings import AppConfig
@@ -134,6 +134,56 @@ class CveCollectorClient:
                 )
         """
         uc = self._container.list_uc()
+        return uc.execute(ecosystem=ecosystem, limit=limit, skip=skip, detailed=detailed, filter_expr=filter_expr)
+
+    def list_vulnerabilities_iter(
+        self,
+        *,
+        ecosystem: str | None = None,
+        limit: int | None = None,
+        skip: int = 0,
+        detailed: bool = False,
+        filter_expr: str | None = None,
+    ) -> Iterator[Vulnerability]:
+        """Return an iterator of vulnerabilities.
+
+        This method returns an iterator instead of a list, allowing lazy evaluation
+        and memory-efficient processing of large result sets.
+
+        Args:
+            ecosystem: Ecosystem name (e.g., npm). If None, lists all ecosystems.
+            limit: Maximum number of results to return. If None, returns all results.
+            skip: Number of results to skip (default: 0). Useful for pagination.
+            detailed: If True, enriches items with additional metadata (GitHub stars, size, etc.).
+            filter_expr: Filter expression using Python syntax.
+                        Examples: 'stars > 1000', 'severity == "HIGH"', 'has_cve and stars > 500'.
+                        Filter variables: ghsa_id, cve_id, has_cve, severity, summary, description, details,
+                        published_at, modified_at, ecosystem, repo_slug, stars, size_bytes,
+                        repo_count, commit_count, poc_count.
+
+        Returns:
+            Iterator of Vulnerability objects.
+
+        Raises:
+            ValueError: If filter_expr is invalid or contains syntax errors.
+
+        Example:
+            with CveCollectorClient() as client:
+                # Process vulnerabilities one at a time
+                for vuln in client.list_vulnerabilities_iter(ecosystem="npm", detailed=True):
+                    print(f"{vuln.ghsa_id}: {vuln.severity}")
+
+                # With filtering
+                high_severity = client.list_vulnerabilities_iter(
+                    ecosystem="npm",
+                    detailed=True,
+                    filter_expr='severity == "HIGH"',
+                    limit=100
+                )
+                for vuln in high_severity:
+                    process(vuln)
+        """
+        uc = self._container.list_iter_uc()
         return uc.execute(ecosystem=ecosystem, limit=limit, skip=skip, detailed=detailed, filter_expr=filter_expr)
 
     def detail(self, id: str) -> Vulnerability | None:
